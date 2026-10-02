@@ -5,7 +5,7 @@ use kutflow_core::{components::Wish, queries::QueryError, views::ViewError};
 
 use crate::{
     config::Flow,
-    protocol::{Request, RequestId, Response},
+    protocol::{Request, RequestId, RequestKind, Response},
     request::{Pending, PendingAction},
     sync,
 };
@@ -71,7 +71,7 @@ impl Runtime {
         &mut self,
         context: String,
         prompt: String,
-        output: crate::OutputKind,
+        kind: RequestKind,
         action: PendingAction,
     ) {
         let id = RequestId(self.next_id);
@@ -81,7 +81,7 @@ impl Runtime {
                 id,
                 context,
                 prompt,
-                output,
+                kind,
             },
             action,
         );
@@ -93,7 +93,6 @@ pub enum RuntimeError {
     Query(QueryError),
     View(ViewError),
     NoChoices,
-    AmbiguousChoice(String),
     UnknownRequest(RequestId),
     InvalidResponse,
     Transition(crate::transition::TransitionError),
@@ -121,7 +120,6 @@ impl fmt::Display for RuntimeError {
             Self::Query(error) => error.fmt(f),
             Self::View(error) => error.fmt(f),
             Self::NoChoices => f.write_str("applicable rule produced no choices"),
-            Self::AmbiguousChoice(value) => write!(f, "choice label is ambiguous: {value}"),
             Self::UnknownRequest(id) => write!(f, "unknown request {}", id.0),
             Self::InvalidResponse => f.write_str("response does not match request"),
             Self::Transition(error) => error.fmt(f),

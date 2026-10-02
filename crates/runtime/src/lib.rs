@@ -6,6 +6,7 @@ mod runtime;
 mod sync;
 mod transition;
 
-pub use protocol::{OutputKind, Request, RequestId, Response};
+pub use kutflow_core::Transition;
+pub use protocol::{Decision, DecisionChoice, Request, RequestId, RequestKind, Response};
 pub use runtime::{Runtime, RuntimeError};
 pub use transition::TransitionError;

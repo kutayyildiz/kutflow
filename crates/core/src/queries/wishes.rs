@@ -1,5 +1,5 @@
 use crate::{
-    components::{Data, TransitionDecision, TransitionReason, Transitioned, Wish},
+    components::{Data, Discarded, TransitionDecision, TransitionReason, Transitioned, Wish},
     queries::{Query, QueryError},
 };
 use hecs::{Entity, World};
@@ -10,6 +10,7 @@ pub(super) fn select(query: Query, world: &World) -> Result<Vec<Entity>, QueryEr
             .query::<Entity>()
             .with::<&Wish>()
             .without::<&Data>()
+            .without::<&Discarded>()
             .without::<&TransitionDecision>()
             .iter()
             .collect()),
@@ -18,6 +19,7 @@ pub(super) fn select(query: Query, world: &World) -> Result<Vec<Entity>, QueryEr
             .with::<&Wish>()
             .with::<&Transitioned>()
             .without::<&Data>()
+            .without::<&Discarded>()
             .iter()
             .filter_map(|(entity, decision)| {
                 (decision.0 == crate::Transition::Review).then_some(entity)
@@ -34,6 +36,7 @@ pub(super) fn select(query: Query, world: &World) -> Result<Vec<Entity>, QueryEr
         Query::WishTransitionData => Ok(world
             .query::<Entity>()
             .with::<(&Data, &Wish, &TransitionReason, &TransitionDecision)>()
+            .without::<&Discarded>()
             .iter()
             .collect()),
         _ => unreachable!(),

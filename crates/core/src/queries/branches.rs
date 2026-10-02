@@ -1,6 +1,7 @@
 use crate::{
     components::{
-        BelongsToBranch, Branch, Commit, Data, TransitionDecision, TransitionReason, Transitioned,
+        BelongsToBranch, Branch, Commit, Data, Discarded, TransitionDecision, TransitionReason,
+        Transitioned,
     },
     queries::{Query, QueryError},
 };
@@ -16,6 +17,7 @@ pub(super) fn select(
             .query::<Entity>()
             .with::<&Branch>()
             .without::<&Data>()
+            .without::<&Discarded>()
             .without::<&TransitionDecision>()
             .iter()
             .collect()),
@@ -24,6 +26,7 @@ pub(super) fn select(
             .with::<&Branch>()
             .with::<&Transitioned>()
             .without::<&Data>()
+            .without::<&Discarded>()
             .iter()
             .filter_map(|(entity, decision)| {
                 (decision.0 == crate::Transition::Review).then_some(entity)
@@ -33,6 +36,7 @@ pub(super) fn select(
             .query::<Entity>()
             .with::<&Branch>()
             .without::<&Data>()
+            .without::<&Discarded>()
             .iter()
             .collect()),
         Query::BranchCommits => {
@@ -44,6 +48,7 @@ pub(super) fn select(
                 .query::<(Entity, &BelongsToBranch)>()
                 .with::<&Commit>()
                 .without::<&Data>()
+                .without::<&Discarded>()
                 .iter()
                 .filter_map(|(entity, belongs)| (belongs.0 == branch).then_some(entity))
                 .collect())
@@ -51,6 +56,7 @@ pub(super) fn select(
         Query::BranchTransitionData => Ok(world
             .query::<Entity>()
             .with::<(&Data, &Branch, &TransitionReason, &TransitionDecision)>()
+            .without::<&Discarded>()
             .iter()
             .collect()),
         _ => unreachable!(),

@@ -1,6 +1,6 @@
 use crate::{
     components::{
-        BelongsToBranch, Commit, CommitHash, Data, TransitionDecision, TransitionReason,
+        BelongsToBranch, Commit, CommitHash, Data, Discarded, TransitionDecision, TransitionReason,
         Transitioned,
     },
     queries::{Query, QueryError},
@@ -13,6 +13,7 @@ pub(super) fn select(query: Query, world: &World) -> Result<Vec<Entity>, QueryEr
             .query::<Entity>()
             .with::<&Commit>()
             .without::<&Data>()
+            .without::<&Discarded>()
             .without::<&TransitionDecision>()
             .iter()
             .collect()),
@@ -21,6 +22,7 @@ pub(super) fn select(query: Query, world: &World) -> Result<Vec<Entity>, QueryEr
             .with::<&Commit>()
             .with::<&Transitioned>()
             .without::<&Data>()
+            .without::<&Discarded>()
             .iter()
             .filter_map(|(entity, decision)| {
                 (decision.0 == crate::Transition::Review).then_some(entity)
@@ -30,11 +32,13 @@ pub(super) fn select(query: Query, world: &World) -> Result<Vec<Entity>, QueryEr
             .query::<Entity>()
             .with::<&Commit>()
             .without::<&Data>()
+            .without::<&Discarded>()
             .iter()
             .collect()),
         Query::CommitTransitionData => Ok(world
             .query::<Entity>()
             .with::<(&Data, &Commit, &TransitionReason, &TransitionDecision)>()
+            .without::<&Discarded>()
             .iter()
             .collect()),
         Query::BranchCandidates => Ok(Query::ReviewedCommits

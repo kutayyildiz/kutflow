@@ -2,13 +2,10 @@
 pub enum Transition {
     Review,
 
-    ModifyWish,
-    DissectWish,
+    AddWish,
     DiscardWish,
 
     AddCommit,
-    ModifyCommit,
-    DissectCommit,
     DiscardCommit,
 
     CreateBranch,

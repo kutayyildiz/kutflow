@@ -1,8 +1,6 @@
-use hecs::Entity;
-
 use crate::{
-    OutputKind,
     config::RuleMode,
+    protocol::{DecisionChoice, RequestKind},
     request::PendingAction,
     runtime::{Runtime, RuntimeError},
 };
@@ -13,11 +11,7 @@ pub(super) fn prepare_rules(runtime: &mut Runtime) -> Result<(), RuntimeError> {
     let mut reserved = runtime
         .pending
         .iter()
-        .flat_map(|pending| match &pending.action {
-            PendingAction::Rule { targets, .. } | PendingAction::Transition { targets, .. } => {
-                targets.clone()
-            }
-        })
+        .flat_map(|pending| pending.targets().to_vec())
         .collect::<Vec<_>>();
     let mut requests = Vec::new();
     for rule in rules {
@@ -35,7 +29,17 @@ pub(super) fn prepare_rules(runtime: &mut Runtime) -> Result<(), RuntimeError> {
             } else {
                 None
             };
-            let mut context = rule.target.view.read(runtime.world(), &targets)?.join("\n");
+            let mut context = targets
+                .iter()
+                .map(|entity| {
+                    Ok(format!(
+                        "Target {}:\n{}",
+                        entity.to_bits().get(),
+                        rule.target.view.read_one(runtime.world(), *entity)?
+                    ))
+                })
+                .collect::<Result<Vec<_>, RuntimeError>>()?
+                .join("\n\n");
             for source in &rule.context {
                 let entities = source.query.select(runtime.world(), subject)?;
                 let values = source.view.read(runtime.world(), &entities)?;
@@ -44,39 +48,36 @@ pub(super) fn prepare_rules(runtime: &mut Runtime) -> Result<(), RuntimeError> {
                 }
             }
             let choices = rule.choices.query.select(runtime.world(), subject)?;
-            let labels = rule.choices.view.read(runtime.world(), &choices)?;
-            if labels.is_empty() {
-                return Err(RuntimeError::NoChoices);
-            }
-            if labels
+            let options = choices
                 .iter()
-                .any(|label| labels.iter().filter(|item| *item == label).count() > 1)
-            {
-                return Err(RuntimeError::AmbiguousChoice("duplicate labels".into()));
+                .map(|entity| {
+                    Ok(DecisionChoice {
+                        transition: runtime
+                            .world()
+                            .get::<&kutflow_core::components::TransitionDecision>(*entity)
+                            .map_err(|_| RuntimeError::NoChoices)?
+                            .0,
+                        reason: rule.choices.view.read_one(runtime.world(), *entity)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, RuntimeError>>()?;
+            if options.is_empty() {
+                return Err(RuntimeError::NoChoices);
             }
             requests.push((
                 context,
                 rule.prompt.clone(),
-                labels.clone(),
-                PendingAction::Rule {
+                RequestKind::Decision {
                     targets: targets.clone(),
-                    choices,
-                    labels,
+                    choices: options,
                 },
+                PendingAction::Decisions,
             ));
             reserved.extend(targets);
         }
     }
-    for (context, prompt, labels, action) in requests {
-        runtime.request(context, prompt, OutputKind::Choice(labels), action);
+    for (context, prompt, kind, action) in requests {
+        runtime.request(context, prompt, kind, action);
     }
     Ok(())
-}
-
-pub(super) fn is_pending(runtime: &Runtime, entity: Entity) -> bool {
-    runtime.pending.iter().any(|pending| match &pending.action {
-        PendingAction::Transition { targets, .. } | PendingAction::Rule { targets, .. } => {
-            targets.contains(&entity)
-        }
-    })
 }

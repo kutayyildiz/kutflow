@@ -1,6 +1,6 @@
 use hecs::{Entity, World};
 use kutflow_core::components::{
-    BelongsToBranch, Branch, Commit, TransitionDecision, TransitionReason, Transitioned,
+    BelongsToBranch, Branch, Commit, Discarded, TransitionDecision, TransitionReason, Transitioned,
 };
 
 use super::{TransitionError, helpers::one};
@@ -40,6 +40,9 @@ pub(super) fn discard(world: &mut World, targets: &[Entity]) -> Result<(), Trans
         world
             .remove_one::<BelongsToBranch>(entity)
             .map_err(|_| TransitionError::InvalidEntity)?;
+        if world.get::<&Discarded>(entity).is_ok() {
+            continue;
+        }
         let _ = world.remove_one::<TransitionDecision>(entity);
         let _ = world.remove_one::<TransitionReason>(entity);
         let _ = world.remove_one::<Transitioned>(entity);

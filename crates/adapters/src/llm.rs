@@ -1,6 +1,10 @@
-use kutflow_runtime::{OutputKind, Request, Response};
+use kutflow_runtime::{Decision, Request, RequestKind, Response};
+use serde_json::Value;
 
 use crate::{Adapter, AdapterError};
+
+mod transitions;
+use transitions::{name as transition_name, parse as parse_transition};
 
 pub struct LlmAdapter;
 
@@ -8,99 +12,117 @@ impl Adapter for LlmAdapter {
     type Request = String;
     type Response = String;
 
-    fn encode(&self, request: &Request) -> Result<Self::Request, AdapterError> {
+    fn encode(&self, request: &Request) -> Result<String, AdapterError> {
         let mut prompt = format!(
             "Context:\n{}\n\nInstruction:\n{}",
             request.context, request.prompt
         );
-
-        match &request.output {
-            OutputKind::Text => {}
-
-            OutputKind::List => {
-                prompt.push_str("\n\nReturn one item per line.");
-            }
-
-            OutputKind::Choice(choices) => {
-                prompt.push_str("\n\nChoose exactly one of:\n");
-
+        match &request.kind {
+            RequestKind::Decision { targets, choices } => {
+                prompt.push_str("\n\nReturn JSON: {\"decisions\":[{\"transition\":\"...\",\"targets\":[target_id],\"reason\":\"...\"}]}.");
+                prompt.push_str(" Allowed targets:\n");
+                for target in targets {
+                    prompt.push_str(&format!("- {}\n", target.to_bits().get()));
+                }
+                prompt.push_str("Allowed transitions and suggested reasons:\n");
                 for choice in choices {
-                    prompt.push_str("- ");
-                    prompt.push_str(choice);
-                    prompt.push('\n');
+                    prompt.push_str(&format!(
+                        "- {}: {}\n",
+                        transition_name(choice.transition),
+                        choice.reason
+                    ));
                 }
-
-                prompt.push_str("\nReturn only the selected choice.");
             }
-
-            OutputKind::Probability => {
-                prompt.push_str("\n\nReturn only a probability between 0.0 and 1.0.");
+            RequestKind::AddWishes => {
+                prompt.push_str("\n\nReturn a JSON array of wish strings to add.")
             }
-
-            OutputKind::Score(scale) => {
-                prompt.push_str("\n\nOrdered scale:\n");
-
-                for item in scale {
-                    prompt.push_str("- ");
-                    prompt.push_str(item);
-                    prompt.push('\n');
-                }
-
-                prompt.push_str("\nReturn only a normalized score between 0.0 and 1.0.");
+            RequestKind::AddCommits => {
+                prompt.push_str("\n\nReturn a JSON array of commit strings.")
             }
         }
-
         Ok(prompt)
     }
 
-    fn decode(
-        &self,
-        request: &Request,
-        response: Self::Response,
-    ) -> Result<Response, AdapterError> {
-        let response = response.trim();
-
-        match &request.output {
-            OutputKind::Text => Ok(Response::Text(response.to_owned())),
-
-            OutputKind::List => Ok(Response::List(
-                response
-                    .lines()
-                    .map(str::trim)
-                    .filter(|line| !line.is_empty())
-                    .map(str::to_owned)
-                    .collect(),
-            )),
-
-            OutputKind::Choice(choices) => {
-                if choices.iter().any(|choice| choice == response) {
-                    Ok(Response::Choice(response.to_owned()))
-                } else {
-                    Err(AdapterError::InvalidResponse(response.to_owned()))
+    fn decode(&self, request: &Request, response: String) -> Result<Response, AdapterError> {
+        let value: Value = serde_json::from_str(response.trim())
+            .map_err(|error| AdapterError::InvalidResponse(error.to_string()))?;
+        let result = match &request.kind {
+            RequestKind::Decision { targets, .. } => {
+                let decisions = value
+                    .get("decisions")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| {
+                        AdapterError::InvalidResponse("expected decisions array".into())
+                    })?;
+                let mut parsed = Vec::new();
+                for decision in decisions {
+                    let transition = parse_transition(
+                        decision
+                            .get("transition")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| {
+                                AdapterError::InvalidResponse("missing transition".into())
+                            })?,
+                    )?;
+                    let reason = decision
+                        .get("reason")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| AdapterError::InvalidResponse("missing reason".into()))?
+                        .to_owned();
+                    let ids = decision
+                        .get("targets")
+                        .and_then(Value::as_array)
+                        .ok_or_else(|| {
+                            AdapterError::InvalidResponse("missing target ids".into())
+                        })?;
+                    let mapped = ids
+                        .iter()
+                        .map(|id| {
+                            let bits = id.as_u64().ok_or_else(|| {
+                                AdapterError::InvalidResponse(
+                                    "target id must be an unsigned integer".into(),
+                                )
+                            })?;
+                            targets
+                                .iter()
+                                .copied()
+                                .find(|target| target.to_bits().get() == bits)
+                                .ok_or_else(|| {
+                                    AdapterError::InvalidResponse("unknown target id".into())
+                                })
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    parsed.push(Decision {
+                        transition,
+                        targets: mapped,
+                        reason,
+                    });
                 }
+                Response::Decisions(parsed)
             }
-
-            OutputKind::Probability => {
-                let value = parse_unit_f64(response)?;
-                Ok(Response::Probability(value))
-            }
-
-            OutputKind::Score(_) => {
-                let value = parse_unit_f64(response)?;
-                Ok(Response::Score(value))
-            }
-        }
+            RequestKind::AddWishes => Response::Wishes(parse_strings(&value, "wishes")?),
+            RequestKind::AddCommits => Response::Commits(parse_strings(&value, "commits")?),
+        };
+        request
+            .accepts(&result)
+            .then_some(result)
+            .ok_or_else(|| AdapterError::InvalidResponse("response does not match request".into()))
     }
 }
 
-fn parse_unit_f64(value: &str) -> Result<f64, AdapterError> {
-    let value: f64 = value
-        .parse()
-        .map_err(|_| AdapterError::InvalidResponse(value.to_owned()))?;
-
-    if !(0.0..=1.0).contains(&value) {
-        return Err(AdapterError::InvalidResponse(value.to_string()));
-    }
-
-    Ok(value)
+fn parse_strings(value: &Value, key: &str) -> Result<Vec<String>, AdapterError> {
+    let array = value
+        .as_array()
+        .or_else(|| value.get(key).and_then(Value::as_array))
+        .ok_or_else(|| {
+            AdapterError::InvalidResponse(format!("expected JSON string array or {key} field"))
+        })?;
+    array
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| AdapterError::InvalidResponse("all items must be strings".into()))
+        })
+        .collect()
 }

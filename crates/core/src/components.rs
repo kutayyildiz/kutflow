@@ -9,6 +9,7 @@ pub struct Data;
 pub struct TransitionReason(pub String);
 pub struct TransitionDecision(pub Transition);
 pub struct Transitioned;
+pub struct Discarded;
 
 pub struct Name(pub String);
 pub struct Description(pub String);

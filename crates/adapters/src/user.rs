@@ -1,29 +1,20 @@
-use kutflow_runtime::{OutputKind, Request, Response};
+use kutflow_runtime::{Decision, Request, RequestKind, Response};
 
 use crate::{Adapter, AdapterError};
 
 pub struct UserAdapter;
 
+#[derive(Clone)]
 pub struct UserRequest {
     pub context: String,
     pub prompt: String,
-    pub output: UserOutput,
-}
-
-pub enum UserOutput {
-    Text,
-    List,
-    Choice(Vec<String>),
-    Probability,
-    Score(Vec<String>),
+    pub kind: RequestKind,
 }
 
 pub enum UserResponse {
-    Text(String),
-    List(Vec<String>),
-    Choice(String),
-    Probability(f64),
-    Score(f64),
+    Decisions(Vec<Decision>),
+    Wishes(Vec<String>),
+    Commits(Vec<String>),
 }
 
 impl Adapter for UserAdapter {
@@ -31,18 +22,10 @@ impl Adapter for UserAdapter {
     type Response = UserResponse;
 
     fn encode(&self, request: &Request) -> Result<Self::Request, AdapterError> {
-        let output = match &request.output {
-            OutputKind::Text => UserOutput::Text,
-            OutputKind::List => UserOutput::List,
-            OutputKind::Choice(choices) => UserOutput::Choice(choices.clone()),
-            OutputKind::Probability => UserOutput::Probability,
-            OutputKind::Score(scale) => UserOutput::Score(scale.clone()),
-        };
-
         Ok(UserRequest {
             context: request.context.clone(),
             prompt: request.prompt.clone(),
-            output,
+            kind: request.kind.clone(),
         })
     }
 
@@ -51,29 +34,14 @@ impl Adapter for UserAdapter {
         request: &Request,
         response: Self::Response,
     ) -> Result<Response, AdapterError> {
-        match (&request.output, response) {
-            (OutputKind::Text, UserResponse::Text(value)) => Ok(Response::Text(value)),
-            (OutputKind::List, UserResponse::List(value)) => Ok(Response::List(value)),
-
-            (OutputKind::Choice(choices), UserResponse::Choice(choice))
-                if choices.contains(&choice) =>
-            {
-                Ok(Response::Choice(choice))
-            }
-
-            (OutputKind::Probability, UserResponse::Probability(value))
-                if (0.0..=1.0).contains(&value) =>
-            {
-                Ok(Response::Probability(value))
-            }
-
-            (OutputKind::Score(_), UserResponse::Score(value)) if (0.0..=1.0).contains(&value) => {
-                Ok(Response::Score(value))
-            }
-
-            _ => Err(AdapterError::InvalidResponse(
-                "response does not match request".into(),
-            )),
-        }
+        let response = match response {
+            UserResponse::Decisions(items) => Response::Decisions(items),
+            UserResponse::Wishes(items) => Response::Wishes(items),
+            UserResponse::Commits(items) => Response::Commits(items),
+        };
+        request
+            .accepts(&response)
+            .then_some(response)
+            .ok_or_else(|| AdapterError::InvalidResponse("response does not match request".into()))
     }
 }

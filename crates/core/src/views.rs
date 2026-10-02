@@ -3,7 +3,7 @@ use std::{error::Error, fmt};
 use hecs::{Entity, World};
 use serde::Deserialize;
 
-use crate::components::{BelongsToBranch, Branch, Commit, TransitionReason, Wish};
+use crate::components::{BelongsToBranch, Branch, Commit, Discarded, TransitionReason, Wish};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -43,7 +43,8 @@ impl View {
                     .query::<(Entity, &BelongsToBranch, &Commit)>()
                     .iter()
                     .filter_map(|(commit, belongs, value)| {
-                        (belongs.0 == entity).then_some((commit.to_bits(), value.to_string()))
+                        (belongs.0 == entity && world.get::<&Discarded>(commit).is_err())
+                            .then_some((commit.to_bits(), value.to_string()))
                     })
                     .collect::<Vec<_>>();
                 commits.sort_by_key(|(id, _)| *id);
