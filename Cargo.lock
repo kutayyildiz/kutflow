@@ -67,6 +67,7 @@ name = "kutflow-adapters"
 version = "0.1.0"
 dependencies = [
  "kutflow-runtime",
+ "serde",
  "serde_json",
 ]
 

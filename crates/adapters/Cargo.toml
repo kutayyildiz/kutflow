@@ -9,4 +9,5 @@ readme.workspace = true
 
 [dependencies]
 kutflow-runtime = { path = "../runtime" }
+serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0"
