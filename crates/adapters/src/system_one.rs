@@ -2,9 +2,9 @@ use kutflow_runtime::{Decision, Request, RequestKind, Response};
 
 use crate::{Adapter, AdapterError};
 
-pub struct JevAdapter;
+pub struct SystemOneAdapter;
 
-pub enum JevRequest {
+pub enum SystemOneRequest {
     Decisions {
         state: String,
         prompt: String,
@@ -12,17 +12,17 @@ pub enum JevRequest {
     },
 }
 
-pub enum JevResponse {
+pub enum SystemOneResult {
     Decisions(Vec<Decision>),
 }
 
-impl Adapter for JevAdapter {
-    type Request = JevRequest;
-    type Response = JevResponse;
+impl Adapter for SystemOneAdapter {
+    type Request = SystemOneRequest;
+    type Response = SystemOneResult;
 
     fn encode(&self, request: &Request) -> Result<Self::Request, AdapterError> {
         match &request.kind {
-            RequestKind::Decision { .. } => Ok(JevRequest::Decisions {
+            RequestKind::Decision { .. } => Ok(SystemOneRequest::Decisions {
                 state: request.context.clone(),
                 prompt: request.prompt.clone(),
                 kind: request.kind.clone(),
@@ -36,7 +36,7 @@ impl Adapter for JevAdapter {
         request: &Request,
         response: Self::Response,
     ) -> Result<Response, AdapterError> {
-        let JevResponse::Decisions(items) = response;
+        let SystemOneResult::Decisions(items) = response;
         let response = Response::Decisions(items);
         request
             .accepts(&response)
