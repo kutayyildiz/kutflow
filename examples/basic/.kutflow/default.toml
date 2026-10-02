@@ -1,0 +1,75 @@
+# Proposed configuration for the future loader and host wiring; neither is implemented yet.
+
+[agents.router]
+adapter = "system_one"
+model = "jev-1.13.0"
+
+[agents.generator]
+adapter = "llm"
+
+[routing]
+decision = "router"
+add_wishes = "generator"
+add_commits = "generator"
+
+[[choice]]
+kind = "wish"
+transition = "review"
+reason = "This wish has been reviewed and accepted as a clear, coherent intent."
+
+[[choice]]
+kind = "wish"
+transition = "discard_wish"
+reason = "This wish is redundant, unrelated, or no longer part of the intended work."
+
+[[choice]]
+kind = "wish"
+transition = "add_wish"
+reason = "Clarify or refine this wish by adding a clearer statement of its intent."
+
+[[choice]]
+kind = "wish"
+transition = "add_commit"
+reason = "Add implementation commit proposals that fulfill this accepted wish."
+
+[[choice]]
+kind = "commit"
+transition = "review"
+reason = "This commit proposal is clear, coherent, and independently reviewable."
+
+[[choice]]
+kind = "commit"
+transition = "discard_commit"
+reason = "This commit proposal is redundant, unnecessary, or unrelated to the accepted work."
+
+[[choice]]
+kind = "commit"
+transition = "add_commit"
+reason = "Write clear, atomic, independently reviewable commit proposals for this planned work."
+
+[[rule]]
+order = 10
+target = { query = "unreviewed_wishes", view = "wishes" }
+context = [{ query = "reviewed_wishes", view = "wishes" }]
+choices = { query = "wish_transition_data", view = "transition_reasons" }
+mode = "per_entity"
+prompt = "Review this wish. Choose Review to accept it or DiscardWish to reject it. AddWish and AddCommit alone keep the original; choose a compound discard-and-add option to replace it."
+
+[[rule]]
+order = 20
+target = { query = "wishes_needing_commits", view = "wishes" }
+context = [{ query = "reviewed_wishes", view = "wishes" }]
+choices = { query = "wish_transition_data", view = "transition_reasons" }
+mode = "batch"
+prompt = "These reviewed wishes need implementation plans. Choose AddCommit to create commit proposals. Use a compound discard-and-add option only when replacing a wish; standalone AddCommit keeps the wishes."
+
+[[rule]]
+order = 30
+target = { query = "unreviewed_commits", view = "commits" }
+context = [
+  { query = "reviewed_wishes", view = "wishes" },
+  { query = "commits", view = "commits" },
+]
+choices = { query = "commit_transition_data", view = "transition_reasons" }
+mode = "per_entity"
+prompt = "Review this commit proposal. Choose Review to accept it or DiscardCommit to reject it. AddCommit alone keeps the original for follow-up work; choose the compound DiscardCommit then AddCommit option to replace it."
