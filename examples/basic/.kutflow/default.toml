@@ -1,4 +1,4 @@
-# Proposed configuration for the future loader and host wiring; neither is implemented yet.
+# Workflow configuration; agent delivery still requires host wiring.
 
 [agents.router]
 adapter = "system_one"
