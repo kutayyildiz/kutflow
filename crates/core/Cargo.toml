@@ -1,0 +1,12 @@
+[package]
+name = "kutflow-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme.workspace = true
+
+[dependencies]
+hecs = { version = "0.11.1", features = ["macros"] }
+serde = { version = "1", features = ["derive"] }
