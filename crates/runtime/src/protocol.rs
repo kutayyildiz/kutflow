@@ -26,3 +26,15 @@ pub enum Response {
     Probability(f64),
     Score(f64),
 }
+
+impl Request {
+    pub(crate) fn accepts(&self, response: &Response) -> bool {
+        match (&self.output, response) {
+            (OutputKind::Text, Response::Text(_)) | (OutputKind::List, Response::List(_)) => true,
+            (OutputKind::Choice(choices), Response::Choice(value)) => choices.contains(value),
+            (OutputKind::Probability, Response::Probability(value))
+            | (OutputKind::Score(_), Response::Score(value)) => (0.0..=1.0).contains(value),
+            _ => false,
+        }
+    }
+}
