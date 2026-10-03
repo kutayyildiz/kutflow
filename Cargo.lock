@@ -72,6 +72,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kutflow-cli"
+version = "0.1.0"
+dependencies = [
+ "hecs",
+ "kutflow-core",
+ "kutflow-runtime",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "kutflow-core"
 version = "0.1.0"
 dependencies = [
