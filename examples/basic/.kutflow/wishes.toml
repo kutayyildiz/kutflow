@@ -1,6 +1,8 @@
 [[choice]]
 kind = "wish"
+effect = "next"
 transition = "review"
+next = "wish_plan"
 because = "it is clear, coherent, and describes one intended outcome."
 
 [[choice]]
@@ -20,29 +22,97 @@ because = "its intended outcome is too unclear to act on."
 
 [[choice]]
 kind = "wish"
-transition = "add_wish"
-because = "it combines distinct outcomes that should be expressed separately."
+effect = "delegate"
+actor_question = "actor_for_delegation"
+because = "the decision needs a different perspective."
 
 [[choice]]
 kind = "wish"
-transition = "add_wish"
-because = "its intended outcome is underspecified and needs clarification."
-
-[[choice]]
-kind = "wish"
+effect = "next"
 transition = "add_commit"
+next = "commit_generation"
+actor_question = "actor_for_generation"
 because = "the accepted wish has no implementation proposal yet."
 
-[[rule]]
+[[choice]]
+kind = "wish"
+effect = "next"
+transition = "add_wish"
+next = "wish_generation"
+actor_question = "actor_for_generation"
+because = "it combines distinct outcomes that should be expressed separately."
+
+[[stage]]
+name = "wish_review"
 order = 10
+entry = true
 target = { query = "unreviewed_wishes", view = "wishes" }
 context = [{ query = "reviewed_wishes", view = "wishes" }]
-choices = { query = "wish_transition_data", view = "transition_reasons" }
-prompt = "Which reason best fits this wish?"
+actor = "router"
 
-[[rule]]
+[[stage.question]]
+name = "decision"
+type = "choices"
+prompt = "Which reason best describes this wish?"
+source = { query = "wish_transition_data", view = "transition_reasons" }
+transitions = ["review", "discard_wish"]
+effects = ["delegate"]
+
+[[stage.question]]
+name = "actor_for_generation"
+type = "actors"
+prompt = "Which actor should handle generation if needed?"
+
+[[stage.question]]
+name = "actor_for_delegation"
+type = "actors"
+prompt = "Which actor should review this request if it is delegated?"
+
+[[stage.effect]]
+question = "decision"
+action = "apply"
+
+[[stage]]
+name = "wish_plan"
 order = 20
+entry = true
 target = { query = "wishes_needing_commits", view = "wishes" }
 context = [{ query = "reviewed_wishes", view = "wishes" }]
-choices = { query = "wish_transition_data", view = "transition_reasons" }
-prompt = "This wish has been reviewed and needs an implementation commit proposal. Which reason best fits its next step?"
+actor = "router"
+
+[[stage.question]]
+name = "decision"
+type = "choices"
+prompt = "This accepted wish needs a next step. Which reason best fits?"
+source = { query = "wish_transition_data", view = "transition_reasons" }
+transitions = ["discard_wish", "add_commit", "add_wish"]
+effects = ["delegate"]
+
+[[stage.question]]
+name = "actor_for_generation"
+type = "actors"
+prompt = "Which actor should write the implementation proposals?"
+
+[[stage.question]]
+name = "actor_for_delegation"
+type = "actors"
+prompt = "Which actor should review this request if it is delegated?"
+
+[[stage.effect]]
+question = "decision"
+action = "apply"
+
+[[stage]]
+name = "wish_generation"
+order = 30
+context = [{ query = "reviewed_wishes", view = "wishes" }]
+actor = "generator"
+
+[[stage.question]]
+name = "wishes"
+type = "wishes"
+prompt = "Write the refined wishes as separate, clear outcomes."
+
+[[stage.effect]]
+question = "wishes"
+action = "generate"

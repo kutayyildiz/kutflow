@@ -1,53 +1,59 @@
-use std::{error::Error, io};
+use std::{collections::BTreeMap, error::Error, io};
 
-use kutflow_runtime::{Answer, Request, RequestKind, Response, Runtime, config::Config};
+use kutflow_runtime::{Answer, QuestionKind, Request, Response, Runtime, config::Config};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../examples/basic/.kutflow/default.toml"
     );
-    let config = Config::load(path)?;
-    let (mut runtime, _host) = config.into_runtime()?;
-
+    let (mut runtime, host) = Config::load(path)?.into_runtime()?;
+    let _host_settings = host;
     runtime.add_wish("Export notes");
     runtime.sync()?;
 
-    let review_wish = one_request(&runtime)?;
-    let review_reason =
-        "Accept this wish because it is clear, coherent, and describes one intended outcome.";
-    let review_response = selection(&review_wish, review_reason)?;
-    println!("{review_wish:#?}");
-    println!("{review_response:#?}");
-    runtime.submit(review_wish.id, review_response)?;
+    let review = one_request(&runtime)?;
+    let answer = response(
+        &review,
+        "Accept this wish because",
+        Some("generator:"),
+        Some("user:"),
+    )?;
+    println!("{review:#?}\n{answer:#?}");
+    runtime.submit(review.id, answer)?;
     runtime.sync()?;
 
-    let add_commit = one_request(&runtime)?;
-    let add_commit_reason =
-        "Add commit proposals because the accepted wish has no implementation proposal yet.";
-    let add_commit_response = selection(&add_commit, add_commit_reason)?;
-    println!("{add_commit:#?}");
-    println!("{add_commit_response:#?}");
-    runtime.submit(add_commit.id, add_commit_response)?;
+    let plan = one_request(&runtime)?;
+    let answer = response(
+        &plan,
+        "Add commit proposals because",
+        Some("generator:"),
+        Some("user:"),
+    )?;
+    println!("{plan:#?}\n{answer:#?}");
+    runtime.submit(plan.id, answer)?;
     runtime.sync()?;
 
     let generate = one_request(&runtime)?;
-    if !matches!(&generate.kind, RequestKind::Commits) {
-        return Err(invalid("expected a commits request"));
-    }
-    let generation_response = Response::Commits(vec!["feat: export notes".into()]);
-    println!("{generate:#?}");
-    println!("{generation_response:#?}");
-    runtime.submit(generate.id, generation_response)?;
+    let generated = Response {
+        answers: BTreeMap::from([(
+            "commits".into(),
+            Answer::Texts(vec!["feat: export notes".into()]),
+        )]),
+    };
+    println!("{generate:#?}\n{generated:#?}");
+    runtime.submit(generate.id, generated)?;
     runtime.sync()?;
 
     let review_commit = one_request(&runtime)?;
-    let review_commit_reason =
-        "Accept this proposal because it is clear, coherent, and independently reviewable.";
-    let review_commit_response = selection(&review_commit, review_commit_reason)?;
-    println!("{review_commit:#?}");
-    println!("{review_commit_response:#?}");
-    runtime.submit(review_commit.id, review_commit_response)?;
+    let answer = response(
+        &review_commit,
+        "Accept this proposal because",
+        Some("generator:"),
+        Some("user:"),
+    )?;
+    println!("{review_commit:#?}\n{answer:#?}");
+    runtime.submit(review_commit.id, answer)?;
     runtime.sync()?;
     Ok(())
 }
@@ -58,23 +64,50 @@ fn one_request(runtime: &Runtime) -> Result<Request, Box<dyn Error>> {
         .next()
         .ok_or_else(|| invalid("runtime produced no request"))?;
     if requests.next().is_some() {
-        return Err(invalid("example expected exactly one request"));
+        return Err(invalid("example expected one request"));
     }
     Ok(request)
 }
 
-fn selection(request: &Request, reason: &str) -> Result<Response, Box<dyn Error>> {
-    let RequestKind::Reasons { target, reasons } = &request.kind else {
-        return Err(invalid("expected a reason request"));
+fn response(
+    request: &Request,
+    reason: &str,
+    generation_actor: Option<&str>,
+    delegation_actor: Option<&str>,
+) -> Result<Response, Box<dyn Error>> {
+    let mut answers = BTreeMap::new();
+    answers.insert(
+        "decision".into(),
+        Answer::Choice(select(request, "decision", reason)?),
+    );
+    if let Some(actor) = generation_actor {
+        answers.insert(
+            "actor_for_generation".into(),
+            Answer::Choice(select(request, "actor_for_generation", actor)?),
+        );
+    }
+    if let Some(actor) = delegation_actor {
+        answers.insert(
+            "actor_for_delegation".into(),
+            Answer::Choice(select(request, "actor_for_delegation", actor)?),
+        );
+    }
+    Ok(Response { answers })
+}
+
+fn select(request: &Request, question: &str, text: &str) -> Result<hecs::Entity, Box<dyn Error>> {
+    let options = request
+        .questions
+        .get(question)
+        .ok_or_else(|| invalid("question missing"))?;
+    let QuestionKind::Choice(options) = &options.kind else {
+        return Err(invalid("question is not a choice"));
     };
-    let selected = reasons
+    options
         .iter()
-        .find(|candidate| candidate.text == reason)
-        .ok_or_else(|| invalid("configured reason is not available"))?;
-    Ok(Response::Answers(vec![Answer {
-        reason_id: selected.reason_id,
-        target: *target,
-    }]))
+        .find(|option| option.text.starts_with(text))
+        .map(|option| option.entity)
+        .ok_or_else(|| invalid("option missing"))
 }
 
 fn invalid(message: &'static str) -> Box<dyn Error> {

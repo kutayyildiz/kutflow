@@ -20,20 +20,74 @@ because = "it bundles unrelated changes or exceeds one reviewable unit."
 
 [[choice]]
 kind = "commit"
+effect = "delegate"
+actor_question = "actor_for_delegation"
+because = "the implementation proposal needs a different perspective."
+
+[[choice]]
+kind = "commit"
+effect = "next"
 transition = "add_wish"
+next = "wish_generation"
+actor_question = "actor_for_generation"
 because = "it reveals an intended outcome missing from the current wishes."
 
 [[choice]]
 kind = "commit"
+effect = "next"
 transition = "add_commit"
+next = "commit_generation"
+actor_question = "actor_for_generation"
 because = "further independent implementation steps remain after this proposal."
 
-[[rule]]
-order = 30
+[[stage]]
+name = "commit_generation"
+order = 40
+context = [
+  { query = "reviewed_wishes", view = "wishes" },
+  { query = "commits", view = "commits" },
+]
+actor = "generator"
+
+[[stage.question]]
+name = "commits"
+type = "commits"
+prompt = "Write clear, atomic, independently reviewable commit proposals."
+
+[[stage.effect]]
+question = "commits"
+action = "generate"
+next = "commit_review"
+
+[[stage]]
+name = "commit_review"
+order = 50
+entry = true
 target = { query = "unreviewed_commits", view = "commits" }
 context = [
   { query = "reviewed_wishes", view = "wishes" },
   { query = "commits", view = "commits" },
 ]
-choices = { query = "commit_transition_data", view = "transition_reasons" }
-prompt = "Which reason best fits this commit proposal?"
+actor = "router"
+
+[[stage.question]]
+name = "decision"
+type = "choices"
+prompt = "Which reason best describes this commit proposal?"
+source = { query = "commit_transition_data", view = "transition_reasons" }
+transitions = ["review", "discard_commit", "add_wish", "add_commit"]
+effects = ["delegate"]
+
+[[stage.question]]
+name = "actor_for_generation"
+type = "actors"
+prompt = "Which actor should handle generation if needed?"
+
+[[stage.question]]
+name = "actor_for_delegation"
+type = "actors"
+prompt = "Which actor should review this request if it is delegated?"
+
+[[stage.effect]]
+question = "decision"
+action = "apply"

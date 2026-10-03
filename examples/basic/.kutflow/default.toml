@@ -1,15 +1,14 @@
-# Workflow configuration; agent delivery still requires host wiring.
-
 imports = ["wishes.toml", "commits.toml"]
 
-[agents.router]
+[actors.router]
 adapter = "system_one"
 model = "jev-1.13.0"
+description = "Reviews workflow decisions and routes questions to the right actor."
 
-[agents.generator]
+[actors.generator]
 adapter = "llm"
+description = "Writes wish and commit proposal text."
 
-[routing]
-decision = "router"
-add_wishes = "generator"
-add_commits = "generator"
+[actors.user]
+adapter = "user"
+description = "Handles choices a person should decide."
