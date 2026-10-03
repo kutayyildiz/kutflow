@@ -4,4 +4,7 @@ mod model;
 mod validation;
 
 pub use loader::ConfigError;
-pub use model::{AgentConfig, Choice, ChoiceKind, Config, Flow, HostConfig, Routing, Rule, Source};
+pub use model::{
+    ActorConfig, ActorSettings, Choice, ChoiceEffect, ChoiceKind, Config, HostConfig, QuestionType,
+    Source, Stage, StageEffect, StageEffectKind, StageQuestion,
+};

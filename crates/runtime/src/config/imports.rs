@@ -7,9 +7,9 @@ use std::{
 use serde::Deserialize;
 
 use super::{
-    Config, HostConfig,
+    Config,
     loader::ConfigError,
-    model::{AgentConfig, Choice, Flow, Routing, Rule},
+    model::{ActorConfig, Choice, Stage},
 };
 
 #[derive(Deserialize)]
@@ -18,20 +18,18 @@ struct Document {
     #[serde(default)]
     imports: Vec<String>,
     #[serde(default)]
-    rule: Vec<Rule>,
+    stage: Vec<Stage>,
     #[serde(default)]
     choice: Vec<Choice>,
     #[serde(default)]
-    agents: Option<BTreeMap<String, AgentConfig>>,
-    #[serde(default)]
-    routing: Option<Routing>,
+    actors: Option<BTreeMap<String, ActorConfig>>,
 }
 
 #[derive(Default)]
 struct Merged {
-    rule: Vec<Rule>,
+    stage: Vec<Stage>,
     choice: Vec<Choice>,
-    host: Option<(BTreeMap<String, AgentConfig>, Routing)>,
+    actors: Option<BTreeMap<String, ActorConfig>>,
 }
 
 pub(super) fn parse(source: &str) -> Result<Config, ConfigError> {
@@ -41,17 +39,26 @@ pub(super) fn parse(source: &str) -> Result<Config, ConfigError> {
             "Config::parse cannot resolve imports; use Config::load with a file path".into(),
         ));
     }
-    let host = entry_host(&document, "configuration")?;
-    Ok(config(document.rule, document.choice, host))
+    let actors = document
+        .actors
+        .ok_or_else(|| ConfigError::Invalid("entry config must define actors".into()))?;
+    Ok(Config {
+        stage: document.stage,
+        choice: document.choice,
+        actors,
+    })
 }
 
 pub(super) fn load(path: impl AsRef<Path>) -> Result<Config, ConfigError> {
     let mut merged = Merged::default();
     visit(path.as_ref(), true, &mut Vec::new(), &mut merged)?;
-    let (agents, routing) = merged.host.ok_or_else(|| {
-        ConfigError::Invalid("entry config must define agents and routing".into())
-    })?;
-    Ok(config(merged.rule, merged.choice, (agents, routing)))
+    Ok(Config {
+        stage: merged.stage,
+        choice: merged.choice,
+        actors: merged
+            .actors
+            .ok_or_else(|| ConfigError::Invalid("entry config must define actors".into()))?,
+    })
 }
 
 fn visit(
@@ -64,14 +71,14 @@ fn visit(
         ConfigError::Invalid(format!("cannot resolve '{}': {error}", path.display()))
     })?;
     if active.contains(&canonical) {
-        let cycle = active
+        let chain = active
             .iter()
             .chain(std::iter::once(&canonical))
-            .map(|path| path.display().to_string())
+            .map(|item| item.display().to_string())
             .collect::<Vec<_>>()
             .join(" -> ");
         return Err(ConfigError::Invalid(format!(
-            "config import cycle: {cycle}"
+            "config import cycle: {chain}"
         )));
     }
     active.push(canonical.clone());
@@ -93,10 +100,12 @@ fn visit_document(
         ConfigError::Invalid(format!("invalid TOML in '{}': {error}", path.display()))
     })?;
     if entry {
-        merged.host = Some(entry_host(&document, &path.display().to_string())?);
-    } else if document.agents.is_some() || document.routing.is_some() {
+        merged.actors = Some(document.actors.ok_or_else(|| {
+            ConfigError::Invalid(format!("'{}' must define actors", path.display()))
+        })?);
+    } else if document.actors.is_some() {
         return Err(ConfigError::Invalid(format!(
-            "imported config '{}' cannot define agents or routing",
+            "imported config '{}' cannot define actors",
             path.display()
         )));
     }
@@ -104,34 +113,7 @@ fn visit_document(
     for import in &document.imports {
         visit(&parent.join(import), false, active, merged)?;
     }
-    merged.rule.extend(document.rule);
+    merged.stage.extend(document.stage);
     merged.choice.extend(document.choice);
     Ok(())
-}
-
-fn entry_host(
-    document: &Document,
-    path: &str,
-) -> Result<(BTreeMap<String, AgentConfig>, Routing), ConfigError> {
-    let agents = document
-        .agents
-        .clone()
-        .ok_or_else(|| ConfigError::Invalid(format!("'{path}' must define agents")))?;
-    let routing = document
-        .routing
-        .clone()
-        .ok_or_else(|| ConfigError::Invalid(format!("'{path}' must define routing")))?;
-    Ok((agents, routing))
-}
-
-fn config(
-    rule: Vec<Rule>,
-    choice: Vec<Choice>,
-    (agents, routing): (BTreeMap<String, AgentConfig>, Routing),
-) -> Config {
-    Config {
-        flow: Flow { rule },
-        choice,
-        host: HostConfig { agents, routing },
-    }
 }

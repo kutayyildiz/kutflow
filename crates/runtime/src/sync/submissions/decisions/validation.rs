@@ -36,6 +36,25 @@ pub(super) fn validate(
             Transition::DiscardBranch => item::<Branch>(runtime, target)?,
         }
     }
+    for (index, action) in decisions.iter().enumerate() {
+        let prior = decisions[..index]
+            .iter()
+            .filter(|item| item.target == action.target)
+            .collect::<Vec<_>>();
+        if prior.len() > 1
+            || prior.iter().any(|previous| {
+                !matches!(
+                    (previous.transition, action.transition),
+                    (
+                        Transition::DiscardWish | Transition::DiscardCommit,
+                        Transition::AddWish | Transition::AddCommit
+                    )
+                )
+            })
+        {
+            return Err(RuntimeError::InvalidResponse);
+        }
+    }
     validate_branch_effects(runtime, decisions)
 }
 

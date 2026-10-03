@@ -37,7 +37,7 @@ pub(super) fn select(query: Query, world: &World) -> Result<Vec<Entity>, QueryEr
             .collect()),
         Query::CommitTransitionData => Ok(world
             .query::<Entity>()
-            .with::<(&Data, &Commit, &TransitionReason, &TransitionDecision)>()
+            .with::<(&Data, &Commit, &TransitionReason)>()
             .without::<&Discarded>()
             .iter()
             .collect()),

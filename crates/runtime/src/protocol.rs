@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use hecs::Entity;
 use serde::Serialize;
 
@@ -10,76 +12,66 @@ pub struct State {
 #[derive(Debug, Clone)]
 pub struct Request {
     pub id: RequestId,
+    pub target: Entity,
+    pub actor: Entity,
+    pub stage: String,
     pub state: State,
-    pub question: String,
-    pub kind: RequestKind,
+    pub questions: BTreeMap<String, Question>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RequestId(pub u64);
 
 #[derive(Debug, Clone)]
-pub enum RequestKind {
-    Reasons {
-        target: Entity,
-        reasons: Vec<Reason>,
-    },
+pub struct Question {
+    pub prompt: String,
+    pub kind: QuestionKind,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum QuestionKind {
+    Choice(Vec<OptionValue>),
     Wishes,
     Commits,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Reason {
-    pub reason_id: Entity,
+pub struct OptionValue {
+    pub entity: Entity,
     pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Answer {
-    pub reason_id: Entity,
-    pub target: Entity,
+pub enum Answer {
+    Choice(Entity),
+    Texts(Vec<String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Response {
-    Answers(Vec<Answer>),
-    Wishes(Vec<String>),
-    Commits(Vec<String>),
+pub struct Response {
+    pub answers: BTreeMap<String, Answer>,
 }
 
 impl Request {
     pub fn accepts(&self, response: &Response) -> bool {
-        match (&self.kind, response) {
-            (RequestKind::Wishes, Response::Wishes(values))
-            | (RequestKind::Commits, Response::Commits(values)) => {
-                values.iter().all(|value| !value.trim().is_empty())
-            }
-            (RequestKind::Reasons { target, reasons }, Response::Answers(answers)) => {
-                valid_answers(*target, reasons, answers)
-            }
-            _ => false,
-        }
+        !response.answers.is_empty()
+            && response.answers.iter().all(|(name, answer)| {
+                self.questions
+                    .get(name)
+                    .is_some_and(|question| match (&question.kind, answer) {
+                        (QuestionKind::Choice(options), Answer::Choice(selected)) => {
+                            options.iter().any(|option| option.entity == *selected)
+                        }
+                        (QuestionKind::Wishes | QuestionKind::Commits, Answer::Texts(items)) => {
+                            items.iter().all(|item| !item.trim().is_empty())
+                        }
+                        _ => false,
+                    })
+            })
+            && self
+                .questions
+                .iter()
+                .all(|(name, question)| !question.required || response.answers.contains_key(name))
     }
-}
-
-fn valid_answers(target: Entity, reasons: &[Reason], answers: &[Answer]) -> bool {
-    if answers.is_empty() {
-        return false;
-    }
-    for (index, answer) in answers.iter().enumerate() {
-        if !reasons
-            .iter()
-            .any(|reason| reason.reason_id == answer.reason_id)
-            || answer.target != target
-        {
-            return false;
-        }
-        if answers[..index]
-            .iter()
-            .any(|prior| prior.reason_id == answer.reason_id)
-        {
-            return false;
-        }
-    }
-    true
 }

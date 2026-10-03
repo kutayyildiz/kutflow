@@ -1,35 +1,35 @@
 use std::collections::BTreeMap;
 
-use kutflow_runtime::{Request, RequestKind};
+use kutflow_runtime::{Question, QuestionKind};
 
 use crate::AdapterError;
 
-pub(super) fn criteria(request: &Request) -> Result<BTreeMap<String, String>, AdapterError> {
-    let RequestKind::Reasons { reasons, .. } = &request.kind else {
+pub(super) fn criteria(question: &Question) -> Result<BTreeMap<String, String>, AdapterError> {
+    let QuestionKind::Choice(options) = &question.kind else {
         return Err(AdapterError::Unsupported);
     };
-    if reasons.is_empty() || reasons.iter().any(|r| r.text.trim().is_empty()) {
+    if options.is_empty() || options.iter().any(|option| option.text.trim().is_empty()) {
         return Err(AdapterError::InvalidResponse(
-            "request needs described reasons".into(),
+            "question needs described options".into(),
         ));
     }
-    let criteria = reasons
+    let criteria = options
         .iter()
-        .map(|reason| {
+        .map(|option| {
             (
-                reason.reason_id.to_bits().get().to_string(),
-                reason.text.clone(),
+                option.entity.to_bits().get().to_string(),
+                option.text.clone(),
             )
         })
         .collect::<BTreeMap<_, _>>();
-    if criteria.len() != reasons.len() {
+    if criteria.len() != options.len() {
         return Err(AdapterError::InvalidResponse(
-            "request contains duplicate reason entities".into(),
+            "question contains duplicate options".into(),
         ));
     }
     if criteria.len() > 255 {
         return Err(AdapterError::InvalidResponse(
-            "request exceeds 255 reasons".into(),
+            "question exceeds 255 options".into(),
         ));
     }
     Ok(criteria)
@@ -43,7 +43,7 @@ pub(super) fn validate_answer(
 ) -> Result<(), AdapterError> {
     if !criteria.contains_key(selected) || !unit(confidence) {
         return Err(AdapterError::InvalidResponse(
-            "invalid selected reason or confidence".into(),
+            "invalid selected option or confidence".into(),
         ));
     }
     if probabilities.len() != criteria.len()
@@ -52,7 +52,7 @@ pub(super) fn validate_answer(
         || (probabilities.values().sum::<f64>() - 1.0).abs() > 1e-4
     {
         return Err(AdapterError::InvalidResponse(
-            "probabilities must cover all reasons and sum to one".into(),
+            "probabilities must cover all options and sum to one".into(),
         ));
     }
     Ok(())

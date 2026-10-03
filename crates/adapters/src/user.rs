@@ -1,44 +1,18 @@
-use kutflow_runtime::{Answer, Request, RequestKind, Response, State};
+use kutflow_runtime::{Request, Response};
 
 use crate::{Adapter, AdapterError};
 
 pub struct UserAdapter;
 
-#[derive(Clone)]
-pub struct UserRequest {
-    pub state: State,
-    pub question: String,
-    pub kind: RequestKind,
-}
-
-pub enum UserResponse {
-    Answers(Vec<Answer>),
-    Wishes(Vec<String>),
-    Commits(Vec<String>),
-}
-
 impl Adapter for UserAdapter {
-    type Request = UserRequest;
-    type Response = UserResponse;
+    type Request = Request;
+    type Response = Response;
 
-    fn encode(&self, request: &Request) -> Result<Self::Request, AdapterError> {
-        Ok(UserRequest {
-            state: request.state.clone(),
-            question: request.question.clone(),
-            kind: request.kind.clone(),
-        })
+    fn encode(&self, request: &Request) -> Result<Request, AdapterError> {
+        Ok(request.clone())
     }
 
-    fn decode(
-        &self,
-        request: &Request,
-        response: Self::Response,
-    ) -> Result<Response, AdapterError> {
-        let response = match response {
-            UserResponse::Answers(items) => Response::Answers(items),
-            UserResponse::Wishes(items) => Response::Wishes(items),
-            UserResponse::Commits(items) => Response::Commits(items),
-        };
+    fn decode(&self, request: &Request, response: Response) -> Result<Response, AdapterError> {
         request
             .accepts(&response)
             .then_some(response)

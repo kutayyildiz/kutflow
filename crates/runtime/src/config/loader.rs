@@ -1,11 +1,24 @@
-use std::{error::Error, fmt, path::Path};
+use std::path::Path;
 
 use hecs::World;
-use kutflow_core::Transition;
-use kutflow_core::components::{Commit, Data, TransitionDecision, TransitionReason, Wish};
+use kutflow_core::{
+    Transition,
+    components::{
+        Actor, AdapterRef, Commit, Data, Description, Name, TransitionDecision, TransitionReason,
+        Wish,
+    },
+};
 
-use super::{Choice, ChoiceKind, Config, HostConfig, imports, validation};
+use std::collections::BTreeMap;
+
+mod error;
+pub use error::ConfigError;
+
+use super::{
+    ActorSettings, Choice, ChoiceEffect, ChoiceKind, Config, HostConfig, imports, validation,
+};
 use crate::Runtime;
+use crate::workflow::{ChoiceAction, OptionAction};
 
 impl Config {
     pub fn parse(source: &str) -> Result<Self, ConfigError> {
@@ -23,40 +36,79 @@ impl Config {
     pub fn into_runtime(self) -> Result<(Runtime, HostConfig), ConfigError> {
         validation::validate(&self)?;
         let mut world = World::new();
+        let mut actor_ids = BTreeMap::new();
+        let mut settings = BTreeMap::new();
+        for (name, actor) in &self.actors {
+            let entity = world.spawn((
+                Actor,
+                Name(name.clone()),
+                Description(actor.description.clone()),
+                AdapterRef(actor.adapter.clone()),
+            ));
+            actor_ids.insert(name.clone(), entity);
+            settings.insert(
+                entity,
+                ActorSettings {
+                    model: actor.model.clone(),
+                    settings: actor.settings.clone(),
+                },
+            );
+        }
         for choice in &self.choice {
             let reason = TransitionReason(reason_sentence(choice)?);
+            let action = match choice.effect {
+                ChoiceEffect::Transition => {
+                    OptionAction::Transition(choice.transition.ok_or_else(|| {
+                        ConfigError::Invalid("transition effect needs a transition".into())
+                    })?)
+                }
+                ChoiceEffect::Delegate => OptionAction::Delegate {
+                    actor_question: choice.actor_question.clone().ok_or_else(|| {
+                        ConfigError::Invalid("delegate effect needs an actor question".into())
+                    })?,
+                },
+                ChoiceEffect::Next => OptionAction::Next {
+                    transition: choice.transition,
+                    stage: choice
+                        .next
+                        .clone()
+                        .ok_or_else(|| ConfigError::Invalid("next effect needs a stage".into()))?,
+                    actor_question: choice.actor_question.clone(),
+                },
+            };
             match choice.kind {
                 super::ChoiceKind::Wish => {
-                    world.spawn((
-                        Data,
-                        Wish(String::new()),
-                        reason,
-                        TransitionDecision(choice.transition),
-                    ));
+                    let entity =
+                        world.spawn((Data, Wish(String::new()), reason, ChoiceAction(action)));
+                    seed_transition(&mut world, entity, choice.transition)?;
                 }
                 super::ChoiceKind::Commit => {
-                    world.spawn((
-                        Data,
-                        Commit(String::new()),
-                        reason,
-                        TransitionDecision(choice.transition),
-                    ));
+                    let entity =
+                        world.spawn((Data, Commit(String::new()), reason, ChoiceAction(action)));
+                    seed_transition(&mut world, entity, choice.transition)?;
                 }
             }
         }
-        let host = self.host;
-        Ok((Runtime::new(world, self.flow), host))
+        let host = HostConfig { actors: settings };
+        Ok((Runtime::new(world, self.stage, actor_ids), host))
     }
 }
 
 fn reason_sentence(choice: &Choice) -> Result<String, ConfigError> {
+    if choice.effect == ChoiceEffect::Delegate {
+        return Ok(format!(
+            "Ask another actor because {}",
+            choice.because.trim()
+        ));
+    }
     let subject = match (choice.kind, choice.transition) {
-        (ChoiceKind::Wish, Transition::Review) => "Accept this wish",
-        (ChoiceKind::Commit, Transition::Review) => "Accept this proposal",
-        (ChoiceKind::Wish, Transition::DiscardWish) => "Discard this wish",
-        (ChoiceKind::Commit, Transition::DiscardCommit) => "Discard this proposal",
-        (_, Transition::AddWish) => "Add wishes",
-        (_, Transition::AddCommit) => "Add commit proposals",
+        (ChoiceKind::Wish, Some(Transition::Review)) => "Accept this wish",
+        (ChoiceKind::Commit, Some(Transition::Review)) => "Accept this proposal",
+        (ChoiceKind::Wish, Some(Transition::DiscardWish)) => "Discard this wish",
+        (ChoiceKind::Commit, Some(Transition::DiscardCommit)) => "Discard this proposal",
+        (_, Some(Transition::AddWish)) => "Add wishes",
+        (_, Some(Transition::AddCommit)) => "Add commit proposals",
+        (_, None) if choice.effect == ChoiceEffect::Next => "Continue",
         _ => {
             return Err(ConfigError::Invalid(
                 "choice transition has no reason sentence format".into(),
@@ -66,29 +118,15 @@ fn reason_sentence(choice: &Choice) -> Result<String, ConfigError> {
     Ok(format!("{subject} because {}", choice.because.trim()))
 }
 
-#[derive(Debug)]
-pub enum ConfigError {
-    Io(std::io::Error),
-    Toml(toml::de::Error),
-    Invalid(String),
-}
-
-impl fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io(error) => write!(f, "could not read configuration: {error}"),
-            Self::Toml(error) => write!(f, "invalid TOML configuration: {error}"),
-            Self::Invalid(message) => f.write_str(message),
-        }
+fn seed_transition(
+    world: &mut World,
+    entity: hecs::Entity,
+    transition: Option<Transition>,
+) -> Result<(), ConfigError> {
+    if let Some(transition) = transition {
+        world
+            .insert_one(entity, TransitionDecision(transition))
+            .map_err(|_| ConfigError::Invalid("cannot seed choice transition".into()))?;
     }
-}
-
-impl Error for ConfigError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Io(error) => Some(error),
-            Self::Toml(error) => Some(error),
-            Self::Invalid(_) => None,
-        }
-    }
+    Ok(())
 }

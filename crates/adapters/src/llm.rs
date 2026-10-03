@@ -1,6 +1,7 @@
-use kutflow_runtime::{Answer, Request, RequestKind, Response};
+use std::collections::BTreeMap;
+
+use kutflow_runtime::{Answer, QuestionKind, Request, Response};
 use serde::Deserialize;
-use serde_json::Value;
 
 use crate::{Adapter, AdapterError};
 
@@ -9,14 +10,14 @@ pub struct LlmAdapter;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AnswerResponse {
-    answers: Vec<Selection>,
+    answers: BTreeMap<String, AnswerValue>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Selection {
-    reason_id: u64,
-    target: u64,
+struct AnswerValue {
+    choice: Option<u64>,
+    texts: Option<Vec<String>>,
 }
 
 impl Adapter for LlmAdapter {
@@ -24,62 +25,71 @@ impl Adapter for LlmAdapter {
     type Response = String;
 
     fn encode(&self, request: &Request) -> Result<String, AdapterError> {
-        let state = serde_json::to_string_pretty(&request.state)
-            .map_err(|error| AdapterError::InvalidResponse(error.to_string()))?;
-        let mut prompt = format!("State:\n{}\n\nQuestion:\n{}", state, request.question);
-        match &request.kind {
-            RequestKind::Reasons { target, reasons } => {
-                prompt.push_str("\n\nWhich reason best fits this state? Return JSON: {\"answers\":[{\"reason_id\":reason_id,\"target\":target_id}]}.");
-                prompt.push_str(&format!(" Target ID: {}\n", target.to_bits().get()));
-                prompt.push_str("Reason IDs and descriptions:\n");
-                for reason in reasons {
-                    prompt.push_str(&format!(
-                        "- {}: {}\n",
-                        reason.reason_id.to_bits().get(),
-                        reason.text
-                    ));
+        let state = serde_json::to_string_pretty(&request.state).map_err(invalid)?;
+        let mut prompt = format!(
+            "State:\n{state}\n\nReturn one JSON object shaped like {{\"answers\":{{\"question_name\":{{\"choice\":entity_id}}}}}}. Text questions use {{\"texts\":[\"...\"]}}.\nQuestions:"
+        );
+        for (name, question) in &request.questions {
+            prompt.push_str(&format!("\n{name}: {}", question.prompt));
+            match &question.kind {
+                QuestionKind::Choice(options) => {
+                    prompt.push_str("\nChoose one option by its numeric entity:");
+                    for option in options {
+                        prompt.push_str(&format!(
+                            "\n- {}: {}",
+                            option.entity.to_bits().get(),
+                            option.text
+                        ));
+                    }
+                }
+                QuestionKind::Wishes | QuestionKind::Commits => {
+                    prompt.push_str("\nProvide generated strings in the texts array.")
                 }
             }
-            RequestKind::Wishes => {
-                prompt.push_str("\n\nReturn a JSON array of wish strings to add.")
-            }
-            RequestKind::Commits => prompt.push_str("\n\nReturn a JSON array of commit strings."),
         }
         Ok(prompt)
     }
 
     fn decode(&self, request: &Request, response: String) -> Result<Response, AdapterError> {
-        let value: Value = serde_json::from_str(response.trim())
-            .map_err(|error| AdapterError::InvalidResponse(error.to_string()))?;
-        let result = match &request.kind {
-            RequestKind::Reasons { target, reasons } => {
-                let parsed: AnswerResponse = serde_json::from_value(value)
-                    .map_err(|error| AdapterError::InvalidResponse(error.to_string()))?;
-                let answers = parsed
-                    .answers
-                    .into_iter()
-                    .map(|selection| {
-                        let reason = reasons
-                            .iter()
-                            .find(|reason| reason.reason_id.to_bits().get() == selection.reason_id)
-                            .map(|reason| reason.reason_id)
-                            .ok_or_else(|| {
-                                AdapterError::InvalidResponse("unknown reason entity".into())
-                            })?;
-                        if target.to_bits().get() != selection.target {
-                            return Err(AdapterError::InvalidResponse("unknown target id".into()));
-                        }
-                        Ok(Answer {
-                            reason_id: reason,
-                            target: *target,
-                        })
-                    })
-                    .collect::<Result<Vec<_>, AdapterError>>()?;
-                Response::Answers(answers)
-            }
-            RequestKind::Wishes => Response::Wishes(parse_strings(&value, "wishes")?),
-            RequestKind::Commits => Response::Commits(parse_strings(&value, "commits")?),
-        };
+        let parsed: AnswerResponse = serde_json::from_str(response.trim()).map_err(invalid)?;
+        let mut answers = BTreeMap::new();
+        for (name, value) in parsed.answers {
+            let question = request.questions.get(&name).ok_or_else(|| {
+                AdapterError::InvalidResponse(format!("unknown question '{name}'"))
+            })?;
+            let answer = match &question.kind {
+                QuestionKind::Choice(options) => {
+                    if value.texts.is_some() {
+                        return Err(AdapterError::InvalidResponse(
+                            "choice answer cannot include texts".into(),
+                        ));
+                    }
+                    let id = value.choice.ok_or_else(|| {
+                        AdapterError::InvalidResponse("choice answer needs an entity".into())
+                    })?;
+                    let entity = options
+                        .iter()
+                        .find(|option| option.entity.to_bits().get() == id)
+                        .map(|option| option.entity)
+                        .ok_or_else(|| {
+                            AdapterError::InvalidResponse("unknown option entity".into())
+                        })?;
+                    Answer::Choice(entity)
+                }
+                QuestionKind::Wishes | QuestionKind::Commits => {
+                    if value.choice.is_some() {
+                        return Err(AdapterError::InvalidResponse(
+                            "text answer cannot include a choice".into(),
+                        ));
+                    }
+                    Answer::Texts(value.texts.ok_or_else(|| {
+                        AdapterError::InvalidResponse("text answer needs texts".into())
+                    })?)
+                }
+            };
+            answers.insert(name, answer);
+        }
+        let result = Response { answers };
         request
             .accepts(&result)
             .then_some(result)
@@ -87,19 +97,6 @@ impl Adapter for LlmAdapter {
     }
 }
 
-fn parse_strings(value: &Value, key: &str) -> Result<Vec<String>, AdapterError> {
-    let array = value
-        .as_array()
-        .or_else(|| value.get(key).and_then(Value::as_array))
-        .ok_or_else(|| {
-            AdapterError::InvalidResponse(format!("expected JSON string array or {key} field"))
-        })?;
-    array
-        .iter()
-        .map(|item| {
-            item.as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| AdapterError::InvalidResponse("all items must be strings".into()))
-        })
-        .collect()
+fn invalid(error: impl std::fmt::Display) -> AdapterError {
+    AdapterError::InvalidResponse(error.to_string())
 }

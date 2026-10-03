@@ -35,7 +35,7 @@ pub(super) fn select(query: Query, world: &World) -> Result<Vec<Entity>, QueryEr
         }
         Query::WishTransitionData => Ok(world
             .query::<Entity>()
-            .with::<(&Data, &Wish, &TransitionReason, &TransitionDecision)>()
+            .with::<(&Data, &Wish, &TransitionReason)>()
             .without::<&Discarded>()
             .iter()
             .collect()),
