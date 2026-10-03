@@ -1,43 +1,22 @@
-use std::{error::Error, fmt, fs, path::Path};
+use std::{error::Error, fmt, path::Path};
 
 use hecs::World;
 use kutflow_core::components::{Commit, Data, TransitionDecision, TransitionReason, Wish};
-use serde::Deserialize;
 
-use super::{
-    Choice, Config, Flow, HostConfig,
-    model::{AgentConfig, Routing},
-    validation,
-};
+use super::{Config, HostConfig, imports, validation};
 use crate::Runtime;
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawConfig {
-    rule: Vec<super::Rule>,
-    choice: Vec<Choice>,
-    agents: std::collections::BTreeMap<String, AgentConfig>,
-    routing: Routing,
-}
 
 impl Config {
     pub fn parse(source: &str) -> Result<Self, ConfigError> {
-        let raw: RawConfig = toml::from_str(source).map_err(ConfigError::Toml)?;
-        let config = Self {
-            flow: Flow { rule: raw.rule },
-            choice: raw.choice,
-            host: HostConfig {
-                agents: raw.agents,
-                routing: raw.routing,
-            },
-        };
+        let config = imports::parse(source)?;
         validation::validate(&config)?;
         Ok(config)
     }
 
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
-        let source = fs::read_to_string(path).map_err(ConfigError::Io)?;
-        Self::parse(&source)
+        let config = imports::load(path)?;
+        validation::validate(&config)?;
+        Ok(config)
     }
 
     pub fn into_runtime(self) -> Result<(Runtime, HostConfig), ConfigError> {
