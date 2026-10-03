@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemOneRequest {
     pub model: String,
-    pub state: String,
+    pub state: Value,
     pub questions: BTreeMap<String, Question>,
 }
 

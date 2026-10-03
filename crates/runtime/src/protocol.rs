@@ -1,11 +1,17 @@
 use hecs::Entity;
-use kutflow_core::Transition;
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct State {
+    pub targets: Vec<String>,
+    pub context: Vec<Vec<String>>,
+}
 
 #[derive(Debug, Clone)]
 pub struct Request {
     pub id: RequestId,
-    pub context: String,
-    pub prompt: String,
+    pub state: State,
+    pub question: String,
     pub kind: RequestKind,
 }
 
@@ -14,30 +20,29 @@ pub struct RequestId(pub u64);
 
 #[derive(Debug, Clone)]
 pub enum RequestKind {
-    Decision {
+    Reasons {
         targets: Vec<Entity>,
-        choices: Vec<DecisionChoice>,
+        reasons: Vec<Reason>,
     },
-    AddWishes,
-    AddCommits,
+    Wishes,
+    Commits,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DecisionChoice {
-    pub transition: Transition,
-    pub reason: String,
+pub struct Reason {
+    pub entity: Entity,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Decision {
-    pub transition: Transition,
+pub struct Answer {
+    pub reason: Entity,
     pub targets: Vec<Entity>,
-    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Response {
-    Decisions(Vec<Decision>),
+    Answers(Vec<Answer>),
     Wishes(Vec<String>),
     Commits(Vec<String>),
 }
@@ -45,74 +50,43 @@ pub enum Response {
 impl Request {
     pub fn accepts(&self, response: &Response) -> bool {
         match (&self.kind, response) {
-            (RequestKind::AddWishes, Response::Wishes(values))
-            | (RequestKind::AddCommits, Response::Commits(values)) => {
+            (RequestKind::Wishes, Response::Wishes(values))
+            | (RequestKind::Commits, Response::Commits(values)) => {
                 values.iter().all(|value| !value.trim().is_empty())
             }
-            (RequestKind::Decision { targets, choices }, Response::Decisions(decisions)) => {
-                valid_decisions(targets, choices, decisions)
+            (RequestKind::Reasons { targets, reasons }, Response::Answers(answers)) => {
+                valid_answers(targets, reasons, answers)
             }
             _ => false,
         }
     }
 }
 
-fn valid_decisions(targets: &[Entity], choices: &[DecisionChoice], decisions: &[Decision]) -> bool {
-    if decisions.is_empty() {
+fn valid_answers(targets: &[Entity], reasons: &[Reason], answers: &[Answer]) -> bool {
+    if answers.is_empty() {
         return false;
     }
-    for (index, decision) in decisions.iter().enumerate() {
-        if decision.reason.trim().is_empty()
-            || !choices
-                .iter()
-                .any(|choice| choice.transition == decision.transition)
-            || decision.targets.is_empty()
+    for (index, answer) in answers.iter().enumerate() {
+        if !reasons.iter().any(|reason| reason.entity == answer.reason) || answer.targets.is_empty()
         {
             return false;
         }
-        if decision
+        if answer
             .targets
             .iter()
             .enumerate()
-            .any(|(i, target)| decision.targets[..i].contains(target))
+            .any(|(i, target)| answer.targets[..i].contains(target))
         {
             return false;
         }
-        for target in &decision.targets {
+        for target in &answer.targets {
             if !targets.contains(target)
-                || decisions[..index].iter().any(|prior| {
-                    prior.transition == decision.transition && prior.targets.contains(target)
-                })
+                || answers[..index]
+                    .iter()
+                    .any(|prior| prior.reason == answer.reason && prior.targets.contains(target))
             {
                 return false;
             }
-        }
-    }
-    for target in targets {
-        let selected = decisions
-            .iter()
-            .enumerate()
-            .filter_map(|(index, item)| {
-                item.targets
-                    .contains(target)
-                    .then_some((index, item.transition))
-            })
-            .collect::<Vec<_>>();
-        match selected.as_slice() {
-            [] | [(_, _)] => {}
-            [(first_index, first), (second_index, second)] => {
-                let matching_add = matches!(
-                    (*first, *second),
-                    (
-                        Transition::DiscardWish | Transition::DiscardCommit,
-                        Transition::AddWish | Transition::AddCommit
-                    )
-                );
-                if !matching_add || first_index >= second_index {
-                    return false;
-                }
-            }
-            _ => return false,
         }
     }
     true

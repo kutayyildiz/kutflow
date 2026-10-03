@@ -54,7 +54,9 @@ fn apply_one(
         return Err(RuntimeError::InvalidResponse);
     }
     match (&item.action, response) {
-        (PendingAction::Decisions, Response::Decisions(decisions)) => {
+        (PendingAction::Answers(reasons), Response::Answers(answers)) => {
+            let decisions = crate::request::resolve(reasons, &answers)
+                .map_err(|_| RuntimeError::InvalidResponse)?;
             decisions::apply(runtime, &decisions)
         }
         (

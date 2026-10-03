@@ -15,37 +15,67 @@ add_commits = "generator"
 [[choice]]
 kind = "wish"
 transition = "review"
-reason = "This wish has been reviewed and accepted as a clear, coherent intent."
+reason = "The wish is clear, coherent, and describes one intended outcome."
 
 [[choice]]
 kind = "wish"
 transition = "discard_wish"
-reason = "This wish is redundant, unrelated, or no longer part of the intended work."
+reason = "The wish duplicates an intent already present in the plan."
+
+[[choice]]
+kind = "wish"
+transition = "discard_wish"
+reason = "The wish conflicts with another wish or a stated constraint."
+
+[[choice]]
+kind = "wish"
+transition = "discard_wish"
+reason = "The wish's intended outcome is too unclear to act on."
 
 [[choice]]
 kind = "wish"
 transition = "add_wish"
-reason = "Clarify or refine this wish by adding a clearer statement of its intent."
+reason = "The wish combines distinct outcomes that should be expressed separately."
+
+[[choice]]
+kind = "wish"
+transition = "add_wish"
+reason = "The wish's intended outcome is underspecified and needs clarification."
 
 [[choice]]
 kind = "wish"
 transition = "add_commit"
-reason = "Add implementation commit proposals that fulfill this accepted wish."
+reason = "The accepted wish has no implementation proposal yet."
 
 [[choice]]
 kind = "commit"
 transition = "review"
-reason = "This commit proposal is clear, coherent, and independently reviewable."
+reason = "This proposal is clear, coherent, and independently reviewable."
 
 [[choice]]
 kind = "commit"
 transition = "discard_commit"
-reason = "This commit proposal is redundant, unnecessary, or unrelated to the accepted work."
+reason = "This proposal duplicates another implementation proposal."
+
+[[choice]]
+kind = "commit"
+transition = "discard_commit"
+reason = "This proposal does not contribute to any accepted wish."
+
+[[choice]]
+kind = "commit"
+transition = "discard_commit"
+reason = "This proposal bundles unrelated changes or exceeds one reviewable unit."
+
+[[choice]]
+kind = "commit"
+transition = "add_wish"
+reason = "This proposal reveals an intended outcome missing from the current wishes."
 
 [[choice]]
 kind = "commit"
 transition = "add_commit"
-reason = "Write clear, atomic, independently reviewable commit proposals for this planned work."
+reason = "Further independent implementation steps remain after this proposal."
 
 [[rule]]
 order = 10
@@ -53,7 +83,7 @@ target = { query = "unreviewed_wishes", view = "wishes" }
 context = [{ query = "reviewed_wishes", view = "wishes" }]
 choices = { query = "wish_transition_data", view = "transition_reasons" }
 mode = "per_entity"
-prompt = "Review this wish. Choose Review to accept it or DiscardWish to reject it. AddWish and AddCommit alone keep the original; choose a compound discard-and-add option to replace it."
+prompt = "Which reason best fits this wish?"
 
 [[rule]]
 order = 20
@@ -61,7 +91,7 @@ target = { query = "wishes_needing_commits", view = "wishes" }
 context = [{ query = "reviewed_wishes", view = "wishes" }]
 choices = { query = "wish_transition_data", view = "transition_reasons" }
 mode = "batch"
-prompt = "These reviewed wishes need implementation plans. Choose AddCommit to create commit proposals. Use a compound discard-and-add option only when replacing a wish; standalone AddCommit keeps the wishes."
+prompt = "These wishes have been reviewed and need implementation commit proposals. Which reason best fits their next step?"
 
 [[rule]]
 order = 30
@@ -72,4 +102,4 @@ context = [
 ]
 choices = { query = "commit_transition_data", view = "transition_reasons" }
 mode = "per_entity"
-prompt = "Review this commit proposal. Choose Review to accept it or DiscardCommit to reject it. AddCommit alone keeps the original for follow-up work; choose the compound DiscardCommit then AddCommit option to replace it."
+prompt = "Which reason best fits this commit proposal?"

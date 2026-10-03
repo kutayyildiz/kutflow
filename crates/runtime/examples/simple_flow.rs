@@ -1,8 +1,6 @@
 use std::{error::Error, io};
 
-use kutflow_runtime::{
-    Decision, Request, RequestKind, Response, Runtime, Transition, config::Config,
-};
+use kutflow_runtime::{Answer, Request, RequestKind, Response, Runtime, config::Config};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let path = concat!(
@@ -13,45 +11,41 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (mut runtime, _host) = config.into_runtime()?;
 
     runtime.add_wish("Export notes");
-    println!("Added wish: Export notes");
     runtime.sync()?;
 
     let review_wish = one_request(&runtime)?;
-    show_request(&review_wish);
-    println!("Submitting response: Review wish");
-    runtime.submit(review_wish.id, decision(&review_wish, Transition::Review)?)?;
+    let review_reason = "The wish is clear, coherent, and describes one intended outcome.";
+    let review_response = selection(&review_wish, review_reason)?;
+    println!("{review_wish:#?}");
+    println!("{review_response:#?}");
+    runtime.submit(review_wish.id, review_response)?;
     runtime.sync()?;
 
     let add_commit = one_request(&runtime)?;
-    show_request(&add_commit);
-    println!("Submitting response: AddCommit");
-    runtime.submit(add_commit.id, decision(&add_commit, Transition::AddCommit)?)?;
+    let add_commit_reason = "The accepted wish has no implementation proposal yet.";
+    let add_commit_response = selection(&add_commit, add_commit_reason)?;
+    println!("{add_commit:#?}");
+    println!("{add_commit_response:#?}");
+    runtime.submit(add_commit.id, add_commit_response)?;
     runtime.sync()?;
 
     let generate = one_request(&runtime)?;
-    show_request(&generate);
-    if !matches!(&generate.kind, RequestKind::AddCommits) {
-        return Err(invalid("expected an AddCommits request"));
+    if !matches!(&generate.kind, RequestKind::Commits) {
+        return Err(invalid("expected a commits request"));
     }
-    println!("Submitting generated commit proposal: feat: export notes");
-    runtime.submit(
-        generate.id,
-        Response::Commits(vec!["feat: export notes".into()]),
-    )?;
+    let generation_response = Response::Commits(vec!["feat: export notes".into()]);
+    println!("{generate:#?}");
+    println!("{generation_response:#?}");
+    runtime.submit(generate.id, generation_response)?;
     runtime.sync()?;
 
     let review_commit = one_request(&runtime)?;
-    show_request(&review_commit);
-    println!("Submitting response: Review commit");
-    runtime.submit(
-        review_commit.id,
-        decision(&review_commit, Transition::Review)?,
-    )?;
+    let review_commit_reason = "This proposal is clear, coherent, and independently reviewable.";
+    let review_commit_response = selection(&review_commit, review_commit_reason)?;
+    println!("{review_commit:#?}");
+    println!("{review_commit_response:#?}");
+    runtime.submit(review_commit.id, review_commit_response)?;
     runtime.sync()?;
-    println!(
-        "Commit proposal reviewed. Pending requests: {}",
-        runtime.requests().len()
-    );
     Ok(())
 }
 
@@ -66,40 +60,21 @@ fn one_request(runtime: &Runtime) -> Result<Request, Box<dyn Error>> {
     Ok(request)
 }
 
-fn decision(request: &Request, transition: Transition) -> Result<Response, Box<dyn Error>> {
-    let RequestKind::Decision { targets, choices } = &request.kind else {
-        return Err(invalid("expected a decision request"));
+fn selection(request: &Request, reason: &str) -> Result<Response, Box<dyn Error>> {
+    let RequestKind::Reasons { targets, reasons } = &request.kind else {
+        return Err(invalid("expected a reason request"));
     };
     if targets.len() != 1 {
         return Err(invalid("example expects one decision target"));
     }
-    let reason = choices
+    let selected = reasons
         .iter()
-        .find(|choice| choice.transition == transition)
-        .ok_or_else(|| invalid("requested transition is not available"))?
-        .reason
-        .clone();
-    Ok(Response::Decisions(vec![Decision {
-        transition,
+        .find(|candidate| candidate.text == reason)
+        .ok_or_else(|| invalid("configured reason is not available"))?;
+    Ok(Response::Answers(vec![Answer {
+        reason: selected.entity,
         targets: targets.clone(),
-        reason,
     }]))
-}
-
-fn show_request(request: &Request) {
-    println!("\nRequest {}", request.id.0);
-    println!("{}", request.prompt);
-    println!("Context:\n{}", request.context);
-    match &request.kind {
-        RequestKind::Decision { targets, choices } => {
-            println!("Targets: {}", targets.len());
-            for choice in choices {
-                println!("- {:?}: {}", choice.transition, choice.reason);
-            }
-        }
-        RequestKind::AddWishes => println!("Expected response: wishes to add"),
-        RequestKind::AddCommits => println!("Expected response: commits to add"),
-    }
 }
 
 fn invalid(message: &'static str) -> Box<dyn Error> {

@@ -1,16 +1,16 @@
 use std::collections::BTreeMap;
 
 use crate::{Adapter, AdapterError};
-use kutflow_runtime::{Request, RequestKind, Response};
+use kutflow_runtime::{Answer as NativeAnswer, Request, RequestKind, Response};
 
-mod options;
+mod reasons;
 mod wire;
-use options::{build_options, validate_answer};
+use reasons::{criteria, validate_answer};
 pub use wire::{
     Answer, AnswerType, Question, QuestionType, SystemOneRequest, SystemOneResult, SystemOneUsage,
 };
 
-const QUESTION_ID: &str = "decision";
+const QUESTION_ID: &str = "reason";
 
 pub struct SystemOneAdapter {
     model: String,
@@ -34,27 +34,20 @@ impl Adapter for SystemOneAdapter {
                 "System One model must not be blank".into(),
             ));
         }
-        let RequestKind::Decision { targets, .. } = &request.kind else {
+        let RequestKind::Reasons { .. } = &request.kind else {
             return Err(AdapterError::Unsupported);
         };
-        let options = build_options(request)?;
-        let criteria = options
-            .iter()
-            .map(|(key, description, _)| (key.clone(), description.clone()))
-            .collect();
-        let target_ids = targets
-            .iter()
-            .map(|target| target.to_bits().get().to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
+        let criteria = criteria(request)?;
+        let state = serde_json::to_value(&request.state)
+            .map_err(|error| AdapterError::InvalidResponse(error.to_string()))?;
         let question = Question {
             question_type: QuestionType::Choice,
-            instructions: format!("{} Target IDs: {target_ids}.", request.prompt),
+            instructions: request.question.clone(),
             criteria,
         };
         Ok(SystemOneRequest {
             model: self.model.clone(),
-            state: request.context.clone(),
+            state,
             questions: BTreeMap::from([(QUESTION_ID.into(), question)]),
         })
     }
@@ -72,27 +65,33 @@ impl Adapter for SystemOneAdapter {
         let answer = response
             .answers
             .get(QUESTION_ID)
-            .ok_or_else(|| AdapterError::InvalidResponse("missing decision answer".into()))?;
+            .ok_or_else(|| AdapterError::InvalidResponse("missing reason answer".into()))?;
         if answer.answer_type != AnswerType::Choice {
             return Err(AdapterError::InvalidResponse(
                 "answer type must be choice".into(),
             ));
         }
-        let options = build_options(request)?;
+        let criteria = criteria(request)?;
         validate_answer(
-            &options,
+            &criteria,
             &answer.choice,
             answer.confidence,
             &answer.probabilities,
         )?;
-        let decisions = options
-            .into_iter()
-            .find(|(key, _, _)| key == &answer.choice)
-            .map(|(_, _, decisions)| decisions)
+        let RequestKind::Reasons { targets, reasons } = &request.kind else {
+            return Err(AdapterError::Unsupported);
+        };
+        let reason = reasons
+            .iter()
+            .find(|reason| reason.entity.to_bits().get().to_string() == answer.choice)
+            .map(|reason| reason.entity)
             .ok_or_else(|| {
-                AdapterError::InvalidResponse("selected choice is not available".into())
+                AdapterError::InvalidResponse("selected reason is not available".into())
             })?;
-        let response = Response::Decisions(decisions);
+        let response = Response::Answers(vec![NativeAnswer {
+            reason,
+            targets: targets.clone(),
+        }]);
         if !request.accepts(&response) {
             return Err(AdapterError::InvalidResponse(
                 "response does not match request".into(),

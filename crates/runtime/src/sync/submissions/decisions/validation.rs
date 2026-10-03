@@ -5,18 +5,21 @@ use kutflow_core::{
 };
 
 use crate::{
-    protocol::Decision,
+    request::ResolvedAction,
     runtime::{Runtime, RuntimeError},
 };
 
-pub(super) fn validate(runtime: &Runtime, decisions: &[Decision]) -> Result<(), RuntimeError> {
+pub(super) fn validate(
+    runtime: &Runtime,
+    decisions: &[ResolvedAction],
+) -> Result<(), RuntimeError> {
     for decision in decisions {
         validate_action(runtime, decision)?;
     }
     validate_branch_effects(runtime, decisions)
 }
 
-fn validate_action(runtime: &Runtime, decision: &Decision) -> Result<(), RuntimeError> {
+fn validate_action(runtime: &Runtime, decision: &ResolvedAction) -> Result<(), RuntimeError> {
     match decision.transition {
         Transition::Review => {
             for target in &decision.targets {
@@ -59,7 +62,10 @@ fn validate_action(runtime: &Runtime, decision: &Decision) -> Result<(), Runtime
     Ok(())
 }
 
-fn validate_branch_effects(runtime: &Runtime, decisions: &[Decision]) -> Result<(), RuntimeError> {
+fn validate_branch_effects(
+    runtime: &Runtime,
+    decisions: &[ResolvedAction],
+) -> Result<(), RuntimeError> {
     let discarded = decisions
         .iter()
         .filter(|d| d.transition == Transition::DiscardBranch)

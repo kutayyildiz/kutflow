@@ -1,4 +1,3 @@
-use hecs::Entity;
 use kutflow_core::{
     Transition,
     components::{TransitionDecision, TransitionReason, Transitioned, Wish},
@@ -6,28 +5,26 @@ use kutflow_core::{
 };
 
 use crate::{
-    protocol::{Decision, RequestKind},
-    request::PendingAction,
+    protocol::{RequestKind, State},
+    request::{PendingAction, ResolvedAction},
     runtime::{Runtime, RuntimeError},
     transition::TransitionExt,
 };
 
 mod validation;
 
-pub(super) fn apply(runtime: &mut Runtime, decisions: &[Decision]) -> Result<(), RuntimeError> {
+pub(super) fn apply(
+    runtime: &mut Runtime,
+    decisions: &[ResolvedAction],
+) -> Result<(), RuntimeError> {
     validation::validate(runtime, decisions)?;
     let mut generated = Vec::new();
     for decision in decisions
         .iter()
         .filter(|d| matches!(d.transition, Transition::AddWish | Transition::AddCommit))
     {
-        let context = decision
-            .targets
-            .iter()
-            .map(|target| generation_context(runtime, decisions, decision, *target))
-            .collect::<Result<Vec<_>, _>>()?
-            .join("\n\n");
-        generated.push((decision.transition, decision.targets.clone(), context));
+        let state = generation_state(runtime, decisions, decision)?;
+        generated.push((decision.transition, decision.targets.clone(), state));
     }
     for decision in decisions {
         for target in &decision.targets {
@@ -54,20 +51,20 @@ pub(super) fn apply(runtime: &mut Runtime, decisions: &[Decision]) -> Result<(),
         }
         apply_state(runtime, decision)?;
     }
-    for (transition, targets, context) in generated {
+    for (transition, targets, state) in generated {
         let kind = if transition == Transition::AddWish {
-            RequestKind::AddWishes
+            RequestKind::Wishes
         } else {
-            RequestKind::AddCommits
+            RequestKind::Commits
         };
-        let prompt = if transition == Transition::AddWish {
+        let question = if transition == Transition::AddWish {
             "Provide wishes to add."
         } else {
             "Provide commits to add."
         };
         runtime.request(
-            context,
-            prompt.into(),
+            state,
+            question.into(),
             kind,
             PendingAction::Generation {
                 transition,
@@ -78,7 +75,7 @@ pub(super) fn apply(runtime: &mut Runtime, decisions: &[Decision]) -> Result<(),
     Ok(())
 }
 
-fn apply_state(runtime: &mut Runtime, decision: &Decision) -> Result<(), RuntimeError> {
+fn apply_state(runtime: &mut Runtime, decision: &ResolvedAction) -> Result<(), RuntimeError> {
     match decision.transition {
         Transition::Review => {
             for target in &decision.targets {
@@ -104,39 +101,34 @@ fn apply_state(runtime: &mut Runtime, decision: &Decision) -> Result<(), Runtime
     Ok(())
 }
 
-fn generation_context(
+fn generation_state(
     runtime: &Runtime,
-    decisions: &[Decision],
-    addition: &Decision,
-    target: Entity,
-) -> Result<String, RuntimeError> {
-    let view = if runtime.world.get::<&Wish>(target).is_ok() {
-        View::Wishes
-    } else {
-        View::Commits
-    };
-    let source = view.read_one(&runtime.world, target)?;
-    let discarded_reason = decisions
-        .iter()
-        .find(|d| {
-            d.targets.contains(&target)
+    decisions: &[ResolvedAction],
+    addition: &ResolvedAction,
+) -> Result<State, RuntimeError> {
+    let mut targets = Vec::new();
+    let mut context = Vec::new();
+    for target in &addition.targets {
+        let view = if runtime.world.get::<&Wish>(*target).is_ok() {
+            View::Wishes
+        } else {
+            View::Commits
+        };
+        targets.push(view.read_one(&runtime.world, *target)?);
+        let mut reasons = Vec::new();
+        if let Some(discard) = decisions.iter().find(|decision| {
+            decision.targets.contains(target)
                 && matches!(
-                    d.transition,
+                    decision.transition,
                     Transition::DiscardWish | Transition::DiscardCommit
                 )
-        })
-        .map(|d| d.reason.as_str())
-        .unwrap_or_default();
-    let discard = if discarded_reason.is_empty() {
-        String::new()
-    } else {
-        format!("\nDiscard reason: {discarded_reason}")
-    };
-    Ok(format!(
-        "Target {}:\n{source}{discard}\nAdd reason: {}",
-        target.to_bits().get(),
-        addition.reason
-    ))
+        }) {
+            reasons.push(discard.reason.clone());
+        }
+        reasons.push(addition.reason.clone());
+        context.push(reasons);
+    }
+    Ok(State { targets, context })
 }
 
 fn is_add(transition: Transition) -> bool {

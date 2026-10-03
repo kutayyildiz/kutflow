@@ -1,7 +1,9 @@
+use kutflow_core::components::TransitionDecision;
+
 use crate::{
     config::RuleMode,
-    protocol::{DecisionChoice, RequestKind},
-    request::PendingAction,
+    protocol::{Reason, RequestKind, State},
+    request::{PendingAction, ReasonAction},
     runtime::{Runtime, RuntimeError},
 };
 
@@ -29,55 +31,60 @@ pub(super) fn prepare_rules(runtime: &mut Runtime) -> Result<(), RuntimeError> {
             } else {
                 None
             };
-            let mut context = targets
+            let target_values = rule.target.view.read(runtime.world(), &targets)?;
+            let context = rule
+                .context
                 .iter()
-                .map(|entity| {
-                    Ok(format!(
-                        "Target {}:\n{}",
-                        entity.to_bits().get(),
-                        rule.target.view.read_one(runtime.world(), *entity)?
-                    ))
-                })
-                .collect::<Result<Vec<_>, RuntimeError>>()?
-                .join("\n\n");
-            for source in &rule.context {
-                let entities = source.query.select(runtime.world(), subject)?;
-                let values = source.view.read(runtime.world(), &entities)?;
-                if !values.is_empty() {
-                    context.push_str(&format!("\n\n{}", values.join("\n")));
-                }
-            }
-            let choices = rule.choices.query.select(runtime.world(), subject)?;
-            let options = choices
-                .iter()
-                .map(|entity| {
-                    Ok(DecisionChoice {
-                        transition: runtime
-                            .world()
-                            .get::<&kutflow_core::components::TransitionDecision>(*entity)
-                            .map_err(|_| RuntimeError::NoChoices)?
-                            .0,
-                        reason: rule.choices.view.read_one(runtime.world(), *entity)?,
-                    })
+                .map(|source| {
+                    let entities = source.query.select(runtime.world(), subject)?;
+                    Ok(source.view.read(runtime.world(), &entities)?)
                 })
                 .collect::<Result<Vec<_>, RuntimeError>>()?;
-            if options.is_empty() {
-                return Err(RuntimeError::NoChoices);
+            let state = State {
+                targets: target_values,
+                context,
+            };
+            let reason_entities = rule.choices.query.select(runtime.world(), subject)?;
+            let projected = reason_entities
+                .iter()
+                .map(|entity| {
+                    let transition = runtime
+                        .world()
+                        .get::<&TransitionDecision>(*entity)
+                        .map_err(|_| RuntimeError::NoReasons)?
+                        .0;
+                    let reason = rule.choices.view.read_one(runtime.world(), *entity)?;
+                    Ok((
+                        Reason {
+                            entity: *entity,
+                            text: reason.clone(),
+                        },
+                        ReasonAction {
+                            entity: *entity,
+                            transition,
+                            reason,
+                        },
+                    ))
+                })
+                .collect::<Result<Vec<_>, RuntimeError>>()?;
+            let (reasons, actions): (Vec<_>, Vec<_>) = projected.into_iter().unzip();
+            if reasons.is_empty() || reasons.iter().any(|reason| reason.text.trim().is_empty()) {
+                return Err(RuntimeError::NoReasons);
             }
             requests.push((
-                context,
+                state,
                 rule.prompt.clone(),
-                RequestKind::Decision {
+                RequestKind::Reasons {
                     targets: targets.clone(),
-                    choices: options,
+                    reasons,
                 },
-                PendingAction::Decisions,
+                PendingAction::Answers(actions),
             ));
             reserved.extend(targets);
         }
     }
-    for (context, prompt, kind, action) in requests {
-        runtime.request(context, prompt, kind, action);
+    for (state, question, kind, action) in requests {
+        runtime.request(state, question, kind, action);
     }
     Ok(())
 }

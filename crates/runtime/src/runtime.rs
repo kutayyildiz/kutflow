@@ -5,8 +5,8 @@ use kutflow_core::{components::Wish, queries::QueryError, views::ViewError};
 
 use crate::{
     config::Flow,
-    protocol::{Request, RequestId, RequestKind, Response},
-    request::{Pending, PendingAction},
+    protocol::{Request, RequestId, RequestKind, Response, State},
+    request::{self, Pending, PendingAction},
     sync,
 };
 
@@ -52,6 +52,11 @@ impl Runtime {
         if !pending.request.accepts(&response) {
             return Err(RuntimeError::InvalidResponse);
         }
+        if let (PendingAction::Answers(reasons), Response::Answers(answers)) =
+            (&pending.action, &response)
+        {
+            request::resolve(reasons, answers).map_err(|_| RuntimeError::InvalidResponse)?;
+        }
         pending.response = Some(response);
         Ok(())
     }
@@ -69,8 +74,8 @@ impl Runtime {
 
     pub(super) fn request(
         &mut self,
-        context: String,
-        prompt: String,
+        state: State,
+        question: String,
         kind: RequestKind,
         action: PendingAction,
     ) {
@@ -79,8 +84,8 @@ impl Runtime {
         self.push(
             Request {
                 id,
-                context,
-                prompt,
+                state,
+                question,
                 kind,
             },
             action,
@@ -92,7 +97,7 @@ impl Runtime {
 pub enum RuntimeError {
     Query(QueryError),
     View(ViewError),
-    NoChoices,
+    NoReasons,
     UnknownRequest(RequestId),
     InvalidResponse,
     Transition(crate::transition::TransitionError),
@@ -119,7 +124,7 @@ impl fmt::Display for RuntimeError {
         match self {
             Self::Query(error) => error.fmt(f),
             Self::View(error) => error.fmt(f),
-            Self::NoChoices => f.write_str("applicable rule produced no choices"),
+            Self::NoReasons => f.write_str("applicable rule produced no reasons"),
             Self::UnknownRequest(id) => write!(f, "unknown request {}", id.0),
             Self::InvalidResponse => f.write_str("response does not match request"),
             Self::Transition(error) => error.fmt(f),

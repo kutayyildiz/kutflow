@@ -1,4 +1,4 @@
-use kutflow_runtime::{Decision, Request, RequestKind, Response};
+use kutflow_runtime::{Answer, Request, RequestKind, Response, State};
 
 use crate::{Adapter, AdapterError};
 
@@ -6,13 +6,13 @@ pub struct UserAdapter;
 
 #[derive(Clone)]
 pub struct UserRequest {
-    pub context: String,
-    pub prompt: String,
+    pub state: State,
+    pub question: String,
     pub kind: RequestKind,
 }
 
 pub enum UserResponse {
-    Decisions(Vec<Decision>),
+    Answers(Vec<Answer>),
     Wishes(Vec<String>),
     Commits(Vec<String>),
 }
@@ -23,8 +23,8 @@ impl Adapter for UserAdapter {
 
     fn encode(&self, request: &Request) -> Result<Self::Request, AdapterError> {
         Ok(UserRequest {
-            context: request.context.clone(),
-            prompt: request.prompt.clone(),
+            state: request.state.clone(),
+            question: request.question.clone(),
             kind: request.kind.clone(),
         })
     }
@@ -35,7 +35,7 @@ impl Adapter for UserAdapter {
         response: Self::Response,
     ) -> Result<Response, AdapterError> {
         let response = match response {
-            UserResponse::Decisions(items) => Response::Decisions(items),
+            UserResponse::Answers(items) => Response::Answers(items),
             UserResponse::Wishes(items) => Response::Wishes(items),
             UserResponse::Commits(items) => Response::Commits(items),
         };
