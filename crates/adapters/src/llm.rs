@@ -15,8 +15,8 @@ struct AnswerResponse {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Selection {
-    reason: u64,
-    targets: Vec<u64>,
+    reason_id: u64,
+    target: u64,
 }
 
 impl Adapter for LlmAdapter {
@@ -28,17 +28,14 @@ impl Adapter for LlmAdapter {
             .map_err(|error| AdapterError::InvalidResponse(error.to_string()))?;
         let mut prompt = format!("State:\n{}\n\nQuestion:\n{}", state, request.question);
         match &request.kind {
-            RequestKind::Reasons { targets, reasons } => {
-                prompt.push_str("\n\nWhich reason best fits this state? Return JSON: {\"answers\":[{\"reason\":reason_id,\"targets\":[target_id]}]}.");
-                prompt.push_str(" Allowed target IDs:\n");
-                for target in targets {
-                    prompt.push_str(&format!("- {}\n", target.to_bits().get()));
-                }
+            RequestKind::Reasons { target, reasons } => {
+                prompt.push_str("\n\nWhich reason best fits this state? Return JSON: {\"answers\":[{\"reason_id\":reason_id,\"target\":target_id}]}.");
+                prompt.push_str(&format!(" Target ID: {}\n", target.to_bits().get()));
                 prompt.push_str("Reason IDs and descriptions:\n");
                 for reason in reasons {
                     prompt.push_str(&format!(
                         "- {}: {}\n",
-                        reason.entity.to_bits().get(),
+                        reason.reason_id.to_bits().get(),
                         reason.text
                     ));
                 }
@@ -55,7 +52,7 @@ impl Adapter for LlmAdapter {
         let value: Value = serde_json::from_str(response.trim())
             .map_err(|error| AdapterError::InvalidResponse(error.to_string()))?;
         let result = match &request.kind {
-            RequestKind::Reasons { targets, reasons } => {
+            RequestKind::Reasons { target, reasons } => {
                 let parsed: AnswerResponse = serde_json::from_value(value)
                     .map_err(|error| AdapterError::InvalidResponse(error.to_string()))?;
                 let answers = parsed
@@ -64,27 +61,17 @@ impl Adapter for LlmAdapter {
                     .map(|selection| {
                         let reason = reasons
                             .iter()
-                            .find(|reason| reason.entity.to_bits().get() == selection.reason)
-                            .map(|reason| reason.entity)
+                            .find(|reason| reason.reason_id.to_bits().get() == selection.reason_id)
+                            .map(|reason| reason.reason_id)
                             .ok_or_else(|| {
                                 AdapterError::InvalidResponse("unknown reason entity".into())
                             })?;
-                        let mapped = selection
-                            .targets
-                            .into_iter()
-                            .map(|id| {
-                                targets
-                                    .iter()
-                                    .copied()
-                                    .find(|target| target.to_bits().get() == id)
-                                    .ok_or_else(|| {
-                                        AdapterError::InvalidResponse("unknown target id".into())
-                                    })
-                            })
-                            .collect::<Result<Vec<_>, _>>()?;
+                        if target.to_bits().get() != selection.target {
+                            return Err(AdapterError::InvalidResponse("unknown target id".into()));
+                        }
                         Ok(Answer {
-                            reason,
-                            targets: mapped,
+                            reason_id: reason,
+                            target: *target,
                         })
                     })
                     .collect::<Result<Vec<_>, AdapterError>>()?;

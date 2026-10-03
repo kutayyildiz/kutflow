@@ -22,24 +22,13 @@ pub(super) fn apply(runtime: &mut Runtime) -> Result<(), RuntimeError> {
             return Err(error);
         }
         let discarded = item
-            .targets()
-            .iter()
-            .copied()
-            .filter(|target| runtime.world.get::<&Discarded>(*target).is_ok())
-            .collect::<Vec<_>>();
+            .target()
+            .filter(|target| runtime.world.get::<&Discarded>(*target).is_ok());
         pending.retain(|other| {
-            matches!(other.action, PendingAction::Generation { .. })
-                || !other
-                    .targets()
-                    .iter()
-                    .any(|target| discarded.contains(target))
+            matches!(other.action, PendingAction::Generation { .. }) || other.target() != discarded
         });
         runtime.pending.retain(|other| {
-            matches!(other.action, PendingAction::Generation { .. })
-                || !other
-                    .targets()
-                    .iter()
-                    .any(|target| discarded.contains(target))
+            matches!(other.action, PendingAction::Generation { .. }) || other.target() != discarded
         });
     }
     Ok(())
@@ -59,63 +48,45 @@ fn apply_one(
                 .map_err(|_| RuntimeError::InvalidResponse)?;
             decisions::apply(runtime, &decisions)
         }
-        (
-            PendingAction::Generation {
-                transition,
-                targets,
-            },
-            Response::Wishes(values),
-        ) if *transition == kutflow_core::Transition::AddWish => {
-            validate_generation_targets(runtime, targets)?;
+        (PendingAction::Generation { transition, target }, Response::Wishes(values))
+            if *transition == kutflow_core::Transition::AddWish =>
+        {
+            validate_generation_target(runtime, *target)?;
             for value in values {
                 runtime.world.spawn((Wish(value),));
             }
-            complete_generation(runtime, targets)
+            complete_generation(runtime, *target)
         }
-        (
-            PendingAction::Generation {
-                transition,
-                targets,
-            },
-            Response::Commits(values),
-        ) if *transition == kutflow_core::Transition::AddCommit => {
-            validate_generation_targets(runtime, targets)?;
+        (PendingAction::Generation { transition, target }, Response::Commits(values))
+            if *transition == kutflow_core::Transition::AddCommit =>
+        {
+            validate_generation_target(runtime, *target)?;
             for value in values {
                 runtime.world.spawn((Commit(value),));
             }
-            complete_generation(runtime, targets)
+            complete_generation(runtime, *target)
         }
         _ => Err(RuntimeError::InvalidResponse),
     }
 }
 
-fn validate_generation_targets(
-    runtime: &Runtime,
-    targets: &[hecs::Entity],
-) -> Result<(), RuntimeError> {
-    for target in targets {
-        runtime
-            .world
-            .entity(*target)
-            .map_err(|_| RuntimeError::InvalidResponse)?;
-        if runtime.world.get::<&Data>(*target).is_ok() {
-            return Err(RuntimeError::InvalidResponse);
-        }
+fn validate_generation_target(runtime: &Runtime, target: hecs::Entity) -> Result<(), RuntimeError> {
+    runtime
+        .world
+        .entity(target)
+        .map_err(|_| RuntimeError::InvalidResponse)?;
+    if runtime.world.get::<&Data>(target).is_ok() {
+        return Err(RuntimeError::InvalidResponse);
     }
     Ok(())
 }
 
-fn complete_generation(
-    runtime: &mut Runtime,
-    targets: &[hecs::Entity],
-) -> Result<(), RuntimeError> {
-    for target in targets {
-        if runtime.world.get::<&Discarded>(*target).is_err() {
-            runtime
-                .world
-                .insert_one(*target, Transitioned)
-                .map_err(|_| RuntimeError::InvalidResponse)?;
-        }
+fn complete_generation(runtime: &mut Runtime, target: hecs::Entity) -> Result<(), RuntimeError> {
+    if runtime.world.get::<&Discarded>(target).is_err() {
+        runtime
+            .world
+            .insert_one(target, Transitioned)
+            .map_err(|_| RuntimeError::InvalidResponse)?;
     }
     Ok(())
 }

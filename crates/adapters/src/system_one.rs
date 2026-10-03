@@ -78,19 +78,19 @@ impl Adapter for SystemOneAdapter {
             answer.confidence,
             &answer.probabilities,
         )?;
-        let RequestKind::Reasons { targets, reasons } = &request.kind else {
+        let RequestKind::Reasons { target, reasons } = &request.kind else {
             return Err(AdapterError::Unsupported);
         };
         let reason = reasons
             .iter()
-            .find(|reason| reason.entity.to_bits().get().to_string() == answer.choice)
-            .map(|reason| reason.entity)
+            .find(|reason| reason.reason_id.to_bits().get().to_string() == answer.choice)
+            .map(|reason| reason.reason_id)
             .ok_or_else(|| {
                 AdapterError::InvalidResponse("selected reason is not available".into())
             })?;
         let response = Response::Answers(vec![NativeAnswer {
-            reason,
-            targets: targets.clone(),
+            reason_id: reason,
+            target: *target,
         }]);
         if !request.accepts(&response) {
             return Err(AdapterError::InvalidResponse(

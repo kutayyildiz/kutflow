@@ -1,32 +1,32 @@
 [[choice]]
 kind = "commit"
 transition = "review"
-reason = "This proposal is clear, coherent, and independently reviewable."
+because = "it is clear, coherent, and independently reviewable."
 
 [[choice]]
 kind = "commit"
 transition = "discard_commit"
-reason = "This proposal duplicates another implementation proposal."
+because = "it duplicates another implementation proposal."
 
 [[choice]]
 kind = "commit"
 transition = "discard_commit"
-reason = "This proposal does not contribute to any accepted wish."
+because = "it does not contribute to any accepted wish."
 
 [[choice]]
 kind = "commit"
 transition = "discard_commit"
-reason = "This proposal bundles unrelated changes or exceeds one reviewable unit."
+because = "it bundles unrelated changes or exceeds one reviewable unit."
 
 [[choice]]
 kind = "commit"
 transition = "add_wish"
-reason = "This proposal reveals an intended outcome missing from the current wishes."
+because = "it reveals an intended outcome missing from the current wishes."
 
 [[choice]]
 kind = "commit"
 transition = "add_commit"
-reason = "Further independent implementation steps remain after this proposal."
+because = "further independent implementation steps remain after this proposal."
 
 [[rule]]
 order = 30
@@ -36,5 +36,4 @@ context = [
   { query = "commits", view = "commits" },
 ]
 choices = { query = "commit_transition_data", view = "transition_reasons" }
-mode = "per_entity"
 prompt = "Which reason best fits this commit proposal?"

@@ -14,52 +14,29 @@ pub(super) fn validate(
     decisions: &[ResolvedAction],
 ) -> Result<(), RuntimeError> {
     for decision in decisions {
-        validate_action(runtime, decision)?;
-    }
-    validate_branch_effects(runtime, decisions)
-}
-
-fn validate_action(runtime: &Runtime, decision: &ResolvedAction) -> Result<(), RuntimeError> {
-    match decision.transition {
-        Transition::Review => {
-            for target in &decision.targets {
-                active(runtime, *target)?;
-                if !has_item(runtime, *target) {
+        let target = decision.target;
+        match decision.transition {
+            Transition::Review => {
+                active(runtime, target)?;
+                if !has_item(runtime, target) {
                     return Err(RuntimeError::InvalidResponse);
                 }
             }
-        }
-        Transition::AddWish | Transition::AddCommit => {
-            for target in &decision.targets {
-                active(runtime, *target)?;
-                if !(runtime.world.get::<&Wish>(*target).is_ok()
-                    || runtime.world.get::<&Commit>(*target).is_ok())
+            Transition::AddWish | Transition::AddCommit => {
+                active(runtime, target)?;
+                if !(runtime.world.get::<&Wish>(target).is_ok()
+                    || runtime.world.get::<&Commit>(target).is_ok())
                 {
                     return Err(RuntimeError::InvalidResponse);
                 }
             }
-        }
-        Transition::DiscardWish => items::<Wish>(runtime, &decision.targets)?,
-        Transition::DiscardCommit => items::<Commit>(runtime, &decision.targets)?,
-        Transition::CreateBranch => {
-            if decision.targets.len() < 2 {
-                return Err(RuntimeError::InvalidResponse);
-            }
-            items::<Commit>(runtime, &decision.targets)?;
-            for target in &decision.targets {
-                if runtime.world.get::<&BelongsToBranch>(*target).is_ok() {
-                    return Err(RuntimeError::InvalidResponse);
-                }
-            }
-        }
-        Transition::DiscardBranch => {
-            if decision.targets.len() != 1 {
-                return Err(RuntimeError::InvalidResponse);
-            }
-            items::<Branch>(runtime, &decision.targets)?;
+            Transition::DiscardWish => item::<Wish>(runtime, target)?,
+            Transition::DiscardCommit => item::<Commit>(runtime, target)?,
+            Transition::CreateBranch => return Err(RuntimeError::InvalidResponse),
+            Transition::DiscardBranch => item::<Branch>(runtime, target)?,
         }
     }
-    Ok(())
+    validate_branch_effects(runtime, decisions)
 }
 
 fn validate_branch_effects(
@@ -68,8 +45,8 @@ fn validate_branch_effects(
 ) -> Result<(), RuntimeError> {
     let discarded = decisions
         .iter()
-        .filter(|d| d.transition == Transition::DiscardBranch)
-        .flat_map(|d| d.targets.iter().copied())
+        .filter(|decision| decision.transition == Transition::DiscardBranch)
+        .map(|decision| decision.target)
         .collect::<Vec<_>>();
     let affected = runtime
         .world
@@ -79,11 +56,7 @@ fn validate_branch_effects(
         .collect::<Vec<_>>();
     if !discarded.is_empty()
         && decisions.iter().any(|decision| {
-            decision.transition != Transition::DiscardBranch
-                && decision
-                    .targets
-                    .iter()
-                    .any(|target| affected.contains(target))
+            decision.transition != Transition::DiscardBranch && affected.contains(&decision.target)
         })
     {
         return Err(RuntimeError::InvalidResponse);
@@ -91,14 +64,13 @@ fn validate_branch_effects(
     Ok(())
 }
 
-fn items<T: hecs::Component>(runtime: &Runtime, targets: &[Entity]) -> Result<(), RuntimeError> {
-    for target in targets {
-        active(runtime, *target)?;
-        if runtime.world.get::<&T>(*target).is_err() {
-            return Err(RuntimeError::InvalidResponse);
-        }
-    }
-    Ok(())
+fn item<T: hecs::Component>(runtime: &Runtime, target: Entity) -> Result<(), RuntimeError> {
+    active(runtime, target)?;
+    runtime
+        .world
+        .get::<&T>(target)
+        .map(|_| ())
+        .map_err(|_| RuntimeError::InvalidResponse)
 }
 
 fn active(runtime: &Runtime, target: Entity) -> Result<(), RuntimeError> {

@@ -1,9 +1,10 @@
 use std::{error::Error, fmt, path::Path};
 
 use hecs::World;
+use kutflow_core::Transition;
 use kutflow_core::components::{Commit, Data, TransitionDecision, TransitionReason, Wish};
 
-use super::{Config, HostConfig, imports, validation};
+use super::{Choice, ChoiceKind, Config, HostConfig, imports, validation};
 use crate::Runtime;
 
 impl Config {
@@ -23,12 +24,13 @@ impl Config {
         validation::validate(&self)?;
         let mut world = World::new();
         for choice in &self.choice {
+            let reason = TransitionReason(reason_sentence(choice)?);
             match choice.kind {
                 super::ChoiceKind::Wish => {
                     world.spawn((
                         Data,
                         Wish(String::new()),
-                        TransitionReason(choice.reason.clone()),
+                        reason,
                         TransitionDecision(choice.transition),
                     ));
                 }
@@ -36,7 +38,7 @@ impl Config {
                     world.spawn((
                         Data,
                         Commit(String::new()),
-                        TransitionReason(choice.reason.clone()),
+                        reason,
                         TransitionDecision(choice.transition),
                     ));
                 }
@@ -45,6 +47,23 @@ impl Config {
         let host = self.host;
         Ok((Runtime::new(world, self.flow), host))
     }
+}
+
+fn reason_sentence(choice: &Choice) -> Result<String, ConfigError> {
+    let subject = match (choice.kind, choice.transition) {
+        (ChoiceKind::Wish, Transition::Review) => "Accept this wish",
+        (ChoiceKind::Commit, Transition::Review) => "Accept this proposal",
+        (ChoiceKind::Wish, Transition::DiscardWish) => "Discard this wish",
+        (ChoiceKind::Commit, Transition::DiscardCommit) => "Discard this proposal",
+        (_, Transition::AddWish) => "Add wishes",
+        (_, Transition::AddCommit) => "Add commit proposals",
+        _ => {
+            return Err(ConfigError::Invalid(
+                "choice transition has no reason sentence format".into(),
+            ));
+        }
+    };
+    Ok(format!("{subject} because {}", choice.because.trim()))
 }
 
 #[derive(Debug)]

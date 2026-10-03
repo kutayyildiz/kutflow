@@ -1,44 +1,43 @@
 [[choice]]
 kind = "wish"
 transition = "review"
-reason = "The wish is clear, coherent, and describes one intended outcome."
+because = "it is clear, coherent, and describes one intended outcome."
 
 [[choice]]
 kind = "wish"
 transition = "discard_wish"
-reason = "The wish duplicates an intent already present in the plan."
+because = "it duplicates an intent already present in the plan."
 
 [[choice]]
 kind = "wish"
 transition = "discard_wish"
-reason = "The wish conflicts with another wish or a stated constraint."
+because = "it conflicts with another wish or a stated constraint."
 
 [[choice]]
 kind = "wish"
 transition = "discard_wish"
-reason = "The wish's intended outcome is too unclear to act on."
+because = "its intended outcome is too unclear to act on."
 
 [[choice]]
 kind = "wish"
 transition = "add_wish"
-reason = "The wish combines distinct outcomes that should be expressed separately."
+because = "it combines distinct outcomes that should be expressed separately."
 
 [[choice]]
 kind = "wish"
 transition = "add_wish"
-reason = "The wish's intended outcome is underspecified and needs clarification."
+because = "its intended outcome is underspecified and needs clarification."
 
 [[choice]]
 kind = "wish"
 transition = "add_commit"
-reason = "The accepted wish has no implementation proposal yet."
+because = "the accepted wish has no implementation proposal yet."
 
 [[rule]]
 order = 10
 target = { query = "unreviewed_wishes", view = "wishes" }
 context = [{ query = "reviewed_wishes", view = "wishes" }]
 choices = { query = "wish_transition_data", view = "transition_reasons" }
-mode = "per_entity"
 prompt = "Which reason best fits this wish?"
 
 [[rule]]
@@ -46,5 +45,4 @@ order = 20
 target = { query = "wishes_needing_commits", view = "wishes" }
 context = [{ query = "reviewed_wishes", view = "wishes" }]
 choices = { query = "wish_transition_data", view = "transition_reasons" }
-mode = "batch"
-prompt = "These wishes have been reviewed and need implementation commit proposals. Which reason best fits their next step?"
+prompt = "This wish has been reviewed and needs an implementation commit proposal. Which reason best fits its next step?"

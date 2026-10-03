@@ -5,20 +5,19 @@ use kutflow_runtime::{Request, RequestKind};
 use crate::AdapterError;
 
 pub(super) fn criteria(request: &Request) -> Result<BTreeMap<String, String>, AdapterError> {
-    let RequestKind::Reasons { targets, reasons } = &request.kind else {
+    let RequestKind::Reasons { reasons, .. } = &request.kind else {
         return Err(AdapterError::Unsupported);
     };
-    if targets.is_empty() || reasons.is_empty() || reasons.iter().any(|r| r.text.trim().is_empty())
-    {
+    if reasons.is_empty() || reasons.iter().any(|r| r.text.trim().is_empty()) {
         return Err(AdapterError::InvalidResponse(
-            "request needs targets and described reasons".into(),
+            "request needs described reasons".into(),
         ));
     }
     let criteria = reasons
         .iter()
         .map(|reason| {
             (
-                reason.entity.to_bits().get().to_string(),
+                reason.reason_id.to_bits().get().to_string(),
                 reason.text.clone(),
             )
         })

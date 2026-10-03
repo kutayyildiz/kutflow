@@ -14,7 +14,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     runtime.sync()?;
 
     let review_wish = one_request(&runtime)?;
-    let review_reason = "The wish is clear, coherent, and describes one intended outcome.";
+    let review_reason =
+        "Accept this wish because it is clear, coherent, and describes one intended outcome.";
     let review_response = selection(&review_wish, review_reason)?;
     println!("{review_wish:#?}");
     println!("{review_response:#?}");
@@ -22,7 +23,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     runtime.sync()?;
 
     let add_commit = one_request(&runtime)?;
-    let add_commit_reason = "The accepted wish has no implementation proposal yet.";
+    let add_commit_reason =
+        "Add commit proposals because the accepted wish has no implementation proposal yet.";
     let add_commit_response = selection(&add_commit, add_commit_reason)?;
     println!("{add_commit:#?}");
     println!("{add_commit_response:#?}");
@@ -40,7 +42,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     runtime.sync()?;
 
     let review_commit = one_request(&runtime)?;
-    let review_commit_reason = "This proposal is clear, coherent, and independently reviewable.";
+    let review_commit_reason =
+        "Accept this proposal because it is clear, coherent, and independently reviewable.";
     let review_commit_response = selection(&review_commit, review_commit_reason)?;
     println!("{review_commit:#?}");
     println!("{review_commit_response:#?}");
@@ -61,19 +64,16 @@ fn one_request(runtime: &Runtime) -> Result<Request, Box<dyn Error>> {
 }
 
 fn selection(request: &Request, reason: &str) -> Result<Response, Box<dyn Error>> {
-    let RequestKind::Reasons { targets, reasons } = &request.kind else {
+    let RequestKind::Reasons { target, reasons } = &request.kind else {
         return Err(invalid("expected a reason request"));
     };
-    if targets.len() != 1 {
-        return Err(invalid("example expects one decision target"));
-    }
     let selected = reasons
         .iter()
         .find(|candidate| candidate.text == reason)
         .ok_or_else(|| invalid("configured reason is not available"))?;
     Ok(Response::Answers(vec![Answer {
-        reason: selected.entity,
-        targets: targets.clone(),
+        reason_id: selected.reason_id,
+        target: *target,
     }]))
 }
 

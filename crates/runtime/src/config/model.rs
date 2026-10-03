@@ -24,15 +24,7 @@ pub struct Rule {
     #[serde(default)]
     pub context: Vec<Source>,
     pub choices: Source,
-    pub mode: RuleMode,
     pub prompt: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RuleMode {
-    PerEntity,
-    Batch,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -47,7 +39,7 @@ pub enum ChoiceKind {
 pub struct Choice {
     pub kind: ChoiceKind,
     pub transition: Transition,
-    pub reason: String,
+    pub because: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

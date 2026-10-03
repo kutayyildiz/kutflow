@@ -1,7 +1,6 @@
 use kutflow_core::components::TransitionDecision;
 
 use crate::{
-    config::RuleMode,
     protocol::{Reason, RequestKind, State},
     request::{PendingAction, ReasonAction},
     runtime::{Runtime, RuntimeError},
@@ -13,56 +12,47 @@ pub(super) fn prepare_rules(runtime: &mut Runtime) -> Result<(), RuntimeError> {
     let mut reserved = runtime
         .pending
         .iter()
-        .flat_map(|pending| pending.targets().to_vec())
+        .filter_map(|pending| pending.target())
         .collect::<Vec<_>>();
     let mut requests = Vec::new();
     for rule in rules {
         let mut selected = rule.target.query.select(runtime.world(), None)?;
         selected.sort_by_key(|entity| entity.to_bits());
         selected.retain(|entity| !reserved.contains(entity));
-        let groups = match rule.mode {
-            RuleMode::PerEntity => selected.iter().map(|entity| vec![*entity]).collect(),
-            RuleMode::Batch if selected.is_empty() => Vec::new(),
-            RuleMode::Batch => vec![selected],
-        };
-        for targets in groups {
-            let subject = if matches!(rule.mode, RuleMode::PerEntity) {
-                targets.first().copied()
-            } else {
-                None
-            };
-            let target_values = rule.target.view.read(runtime.world(), &targets)?;
-            let context = rule
-                .context
-                .iter()
-                .map(|source| {
-                    let entities = source.query.select(runtime.world(), subject)?;
-                    Ok(source.view.read(runtime.world(), &entities)?)
-                })
-                .collect::<Result<Vec<_>, RuntimeError>>()?;
+        for target in selected {
+            let subject = Some(target);
             let state = State {
-                targets: target_values,
-                context,
+                target: rule.target.view.read_one(runtime.world(), target)?,
+                context: rule
+                    .context
+                    .iter()
+                    .map(|source| {
+                        let entities = source.query.select(runtime.world(), subject)?;
+                        Ok(source.view.read(runtime.world(), &entities)?)
+                    })
+                    .collect::<Result<Vec<_>, RuntimeError>>()?,
             };
-            let reason_entities = rule.choices.query.select(runtime.world(), subject)?;
-            let projected = reason_entities
-                .iter()
+            let projected = rule
+                .choices
+                .query
+                .select(runtime.world(), subject)?
+                .into_iter()
                 .map(|entity| {
                     let transition = runtime
                         .world()
-                        .get::<&TransitionDecision>(*entity)
+                        .get::<&TransitionDecision>(entity)
                         .map_err(|_| RuntimeError::NoReasons)?
                         .0;
-                    let reason = rule.choices.view.read_one(runtime.world(), *entity)?;
+                    let text = rule.choices.view.read_one(runtime.world(), entity)?;
                     Ok((
                         Reason {
-                            entity: *entity,
-                            text: reason.clone(),
+                            reason_id: entity,
+                            text: text.clone(),
                         },
                         ReasonAction {
-                            entity: *entity,
+                            reason_id: entity,
                             transition,
-                            reason,
+                            reason: text,
                         },
                     ))
                 })
@@ -74,13 +64,10 @@ pub(super) fn prepare_rules(runtime: &mut Runtime) -> Result<(), RuntimeError> {
             requests.push((
                 state,
                 rule.prompt.clone(),
-                RequestKind::Reasons {
-                    targets: targets.clone(),
-                    reasons,
-                },
+                RequestKind::Reasons { target, reasons },
                 PendingAction::Answers(actions),
             ));
-            reserved.extend(targets);
+            reserved.push(target);
         }
     }
     for (state, question, kind, action) in requests {

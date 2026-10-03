@@ -3,7 +3,7 @@ use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct State {
-    pub targets: Vec<String>,
+    pub target: String,
     pub context: Vec<Vec<String>>,
 }
 
@@ -21,7 +21,7 @@ pub struct RequestId(pub u64);
 #[derive(Debug, Clone)]
 pub enum RequestKind {
     Reasons {
-        targets: Vec<Entity>,
+        target: Entity,
         reasons: Vec<Reason>,
     },
     Wishes,
@@ -30,14 +30,14 @@ pub enum RequestKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reason {
-    pub entity: Entity,
+    pub reason_id: Entity,
     pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Answer {
-    pub reason: Entity,
-    pub targets: Vec<Entity>,
+    pub reason_id: Entity,
+    pub target: Entity,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,39 +54,31 @@ impl Request {
             | (RequestKind::Commits, Response::Commits(values)) => {
                 values.iter().all(|value| !value.trim().is_empty())
             }
-            (RequestKind::Reasons { targets, reasons }, Response::Answers(answers)) => {
-                valid_answers(targets, reasons, answers)
+            (RequestKind::Reasons { target, reasons }, Response::Answers(answers)) => {
+                valid_answers(*target, reasons, answers)
             }
             _ => false,
         }
     }
 }
 
-fn valid_answers(targets: &[Entity], reasons: &[Reason], answers: &[Answer]) -> bool {
+fn valid_answers(target: Entity, reasons: &[Reason], answers: &[Answer]) -> bool {
     if answers.is_empty() {
         return false;
     }
     for (index, answer) in answers.iter().enumerate() {
-        if !reasons.iter().any(|reason| reason.entity == answer.reason) || answer.targets.is_empty()
-        {
-            return false;
-        }
-        if answer
-            .targets
+        if !reasons
             .iter()
-            .enumerate()
-            .any(|(i, target)| answer.targets[..i].contains(target))
+            .any(|reason| reason.reason_id == answer.reason_id)
+            || answer.target != target
         {
             return false;
         }
-        for target in &answer.targets {
-            if !targets.contains(target)
-                || answers[..index]
-                    .iter()
-                    .any(|prior| prior.reason == answer.reason && prior.targets.contains(target))
-            {
-                return false;
-            }
+        if answers[..index]
+            .iter()
+            .any(|prior| prior.reason_id == answer.reason_id)
+        {
+            return false;
         }
     }
     true

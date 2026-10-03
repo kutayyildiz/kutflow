@@ -9,8 +9,8 @@ pub(super) fn validate(config: &Config) -> Result<(), ConfigError> {
     }
     validate_host(config)?;
     for choice in &config.choice {
-        if choice.reason.trim().is_empty() || !legal_choice(choice.kind, choice.transition) {
-            return invalid("choice has a blank reason or an action invalid for its kind");
+        if choice.because.trim().is_empty() || !legal_choice(choice.kind, choice.transition) {
+            return invalid("choice has a blank because clause or an action invalid for its kind");
         }
     }
     for rule in &config.flow.rule {

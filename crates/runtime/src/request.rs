@@ -1,11 +1,11 @@
 use hecs::Entity;
 use kutflow_core::Transition;
 
-use crate::protocol::{Answer, Request, Response};
+use crate::protocol::{Answer, Request, RequestKind, Response};
 
 #[derive(Clone)]
 pub(super) struct ReasonAction {
-    pub entity: Entity,
+    pub reason_id: Entity,
     pub transition: Transition,
     pub reason: String,
 }
@@ -13,7 +13,7 @@ pub(super) struct ReasonAction {
 #[derive(Clone)]
 pub(super) struct ResolvedAction {
     pub transition: Transition,
-    pub targets: Vec<Entity>,
+    pub target: Entity,
     pub reason: String,
 }
 
@@ -28,18 +28,18 @@ pub(super) enum PendingAction {
     Answers(Vec<ReasonAction>),
     Generation {
         transition: Transition,
-        targets: Vec<Entity>,
+        target: Entity,
     },
 }
 
 impl Pending {
-    pub fn targets(&self) -> &[Entity] {
+    pub fn target(&self) -> Option<Entity> {
         match &self.action {
             PendingAction::Answers(_) => match &self.request.kind {
-                crate::protocol::RequestKind::Reasons { targets, .. } => targets,
-                _ => &[],
+                RequestKind::Reasons { target, .. } => Some(*target),
+                _ => None,
             },
-            PendingAction::Generation { targets, .. } => targets,
+            PendingAction::Generation { target, .. } => Some(*target),
         }
     }
 }
@@ -53,11 +53,11 @@ pub(super) fn resolve(
         .map(|answer| {
             let reason = reasons
                 .iter()
-                .find(|reason| reason.entity == answer.reason)
+                .find(|reason| reason.reason_id == answer.reason_id)
                 .ok_or(())?;
             Ok(ResolvedAction {
                 transition: reason.transition,
-                targets: answer.targets.clone(),
+                target: answer.target,
                 reason: reason.reason.clone(),
             })
         })
@@ -66,27 +66,25 @@ pub(super) fn resolve(
     Ok(resolved)
 }
 
-fn validate_conflicts(decisions: &[ResolvedAction]) -> Result<(), ()> {
-    for (index, decision) in decisions.iter().enumerate() {
-        for target in &decision.targets {
-            let selected = decisions[..=index]
-                .iter()
-                .filter(|item| item.targets.contains(target))
-                .collect::<Vec<_>>();
-            if selected.len() > 2 {
-                return Err(());
-            }
-            if let [first, second] = selected.as_slice()
-                && !matches!(
-                    (first.transition, second.transition),
-                    (
-                        Transition::DiscardWish | Transition::DiscardCommit,
-                        Transition::AddWish | Transition::AddCommit
-                    )
+fn validate_conflicts(actions: &[ResolvedAction]) -> Result<(), ()> {
+    for (index, action) in actions.iter().enumerate() {
+        let selected = actions[..=index]
+            .iter()
+            .filter(|item| item.target == action.target)
+            .collect::<Vec<_>>();
+        if selected.len() > 2 {
+            return Err(());
+        }
+        if let [first, second] = selected.as_slice()
+            && !matches!(
+                (first.transition, second.transition),
+                (
+                    Transition::DiscardWish | Transition::DiscardCommit,
+                    Transition::AddWish | Transition::AddCommit
                 )
-            {
-                return Err(());
-            }
+            )
+        {
+            return Err(());
         }
     }
     Ok(())
