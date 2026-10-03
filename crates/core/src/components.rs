@@ -13,6 +13,8 @@ pub struct Discarded;
 
 pub struct Name(pub String);
 pub struct Description(pub String);
+pub struct Actor;
+pub struct AdapterRef(pub String);
 
 pub struct Wish(pub String);
 
@@ -37,6 +39,7 @@ macro_rules! display_inner {
 display_inner!(
     Name,
     Description,
+    AdapterRef,
     TransitionReason,
     Wish,
     Commit,
