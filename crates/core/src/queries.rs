@@ -2,6 +2,7 @@ use hecs::{Entity, World};
 use serde::Deserialize;
 use std::{error::Error, fmt};
 
+mod actors;
 mod branches;
 mod commits;
 mod wishes;
@@ -23,11 +24,13 @@ pub enum Query {
     Branches,
     BranchCommits,
     BranchTransitionData,
+    Actors,
 }
 
 impl Query {
     pub fn select(self, world: &World, subject: Option<Entity>) -> Result<Vec<Entity>, QueryError> {
         match self {
+            Self::Actors => actors::select(world),
             Self::UnreviewedWishes
             | Self::ReviewedWishes
             | Self::WishesNeedingCommits

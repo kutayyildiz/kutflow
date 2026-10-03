@@ -3,7 +3,9 @@ use std::{error::Error, fmt};
 use hecs::{Entity, World};
 use serde::Deserialize;
 
-use crate::components::{BelongsToBranch, Branch, Commit, Discarded, TransitionReason, Wish};
+use crate::components::{
+    Actor, BelongsToBranch, Branch, Commit, Description, Discarded, Name, TransitionReason, Wish,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -12,6 +14,7 @@ pub enum View {
     Commits,
     Branches,
     TransitionReasons,
+    Actors,
 }
 
 impl View {
@@ -59,6 +62,19 @@ impl View {
                 .get::<&TransitionReason>(entity)
                 .map(|value| value.to_string())
                 .map_err(|_| ViewError::MissingComponent { entity, view: self }),
+
+            Self::Actors => {
+                world
+                    .get::<&Actor>(entity)
+                    .map_err(|_| ViewError::MissingComponent { entity, view: self })?;
+                let name = world
+                    .get::<&Name>(entity)
+                    .map_err(|_| ViewError::MissingComponent { entity, view: self })?;
+                let description = world
+                    .get::<&Description>(entity)
+                    .map_err(|_| ViewError::MissingComponent { entity, view: self })?;
+                Ok(format!("{}: {}", name.0, description.0))
+            }
         }
     }
 }

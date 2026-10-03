@@ -16,6 +16,7 @@ pub(super) fn source(source: &Source) -> Result<(), ConfigError> {
         Query::WishTransitionData | Query::CommitTransitionData | Query::BranchTransitionData => {
             View::TransitionReasons
         }
+        Query::Actors => View::Actors,
         Query::BranchCommits => return invalid("branch_commits source is not supported"),
     };
     if source.view != expected {

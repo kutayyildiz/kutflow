@@ -4,10 +4,7 @@ use crate::{
     runtime::{Runtime, RuntimeError},
 };
 use hecs::Entity;
-use kutflow_core::{
-    components::{Actor, Description, Name},
-    views::View,
-};
+use kutflow_core::{queries::Query, views::View};
 use std::collections::BTreeMap;
 
 pub(super) fn build(
@@ -85,18 +82,14 @@ fn choice_options(
 }
 
 fn actor_options(runtime: &Runtime) -> Result<Vec<OptionValue>, RuntimeError> {
-    let mut options = runtime
-        .world
-        .query::<(Entity, &Name, &Description)>()
-        .with::<&Actor>()
-        .iter()
-        .map(|(entity, name, description)| {
+    Query::Actors
+        .select(runtime.world(), None)?
+        .into_iter()
+        .map(|entity| {
             Ok(OptionValue {
                 entity,
-                text: format!("{}: {}", name.0, description.0),
+                text: View::Actors.read_one(runtime.world(), entity)?,
             })
         })
-        .collect::<Result<Vec<_>, RuntimeError>>()?;
-    options.sort_by_key(|option| option.entity.to_bits());
-    Ok(options)
+        .collect()
 }
